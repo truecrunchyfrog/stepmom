@@ -2,18 +2,28 @@ mod prelude;
 mod commands;
 
 use core::panic;
+use std::fs;
 use dotenv::dotenv;
 use log::{error, info};
+use poise::serenity_prelude::CacheHttp;
 use poise::CreateReply;
 use poise::serenity_prelude as serenity;
+use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::{sync::Arc, time::Duration};
 
+#[derive(Deserialize)]
+pub struct Config {
+    starboard_channel: u64
+}
+
 pub struct Data {
+    config: Config,
     db_pool: sqlx::SqlitePool
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
+#[allow(dead_code)]
 type Context<'a> = poise::Context<'a, Data, Error>;
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -22,15 +32,14 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
         poise::FrameworkError::Command { error, ctx, .. } => {
             error!("Error in command: `{}`: {:?}", ctx.command().name, error);
 
-            ctx.defer_ephemeral().await;
             ctx.send(
                 ctx.reply_builder(CreateReply::default().ephemeral(true).content(format!(
-                    "Error while running command `{}`:\n>>> {}",
+                    "-# Command *{}* failed\n>>> {}",
                     ctx.command().name,
                     error
                 ))),
             )
-            .await;
+            .await.unwrap();
         }
         error => {
             if let Err(e) = poise::builtins::on_error(error).await {
@@ -46,9 +55,15 @@ async fn main() -> Result<(), sqlx::Error> {
 
     env_logger::init();
 
+    let config_filename = std::env::var("config").unwrap_or(String::from("config.toml"));
+
+    let config: Config = toml::from_str(&fs::read_to_string(config_filename)
+        .unwrap()).unwrap();
+
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&std::env::var("SQLITE_CONNSTR").expect("Missing SQLITE_CONNSTR environment variable"))
+        .connect(&std::env::var("SQLITE_CONNSTR")
+            .expect("Missing SQLITE_CONNSTR environment variable"))
         .await?;
 
     let options = poise::FrameworkOptions {
@@ -74,9 +89,20 @@ async fn main() -> Result<(), sqlx::Error> {
             })
         },
         command_check: Some(|_ctx| Box::pin(async move { Ok(true) })),
-        event_handler: |_ctx, event, _framework, _data| {
+        event_handler: |_ctx, event, _framework, data| {
             Box::pin(async move {
                 info!("Event handler: {:?}", event.snake_case_name());
+
+                match event {
+                    serenity::FullEvent::GuildMemberAddition { new_member } => {
+                        let user_id = i64::from(new_member.user.id);
+                        sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", user_id)
+                            .execute(&data.db_pool)
+                            .await?;
+                    },
+                    _ => ()
+                }
+
                 Ok(())
             })
         },
@@ -87,6 +113,23 @@ async fn main() -> Result<(), sqlx::Error> {
         .setup(move |ctx, _ready, framework| {
             Box::pin(async move {
                 info!("Logged in as {}", _ready.user.name);
+
+                info!("Creating users in database.");
+
+                let guilds = ctx.http().get_guilds(None, None)
+                    .await?;
+
+                for guild in guilds {
+                    let members = ctx.http().get_guild_members(guild.id, None, None)
+                        .await?;
+                    for member in members {
+                        let user_id = i64::from(member.user.id);
+                        sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", user_id)
+                            .execute(&pool)
+                            .await?;
+                    }
+                }
+
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
 
                 ctx.set_presence(
@@ -95,6 +138,7 @@ async fn main() -> Result<(), sqlx::Error> {
                 );
 
                 Ok(Data {
+                    config,
                     db_pool: pool
                 })
             })
@@ -106,6 +150,7 @@ async fn main() -> Result<(), sqlx::Error> {
         std::env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN environment variable");
 
     let intents = serenity::GatewayIntents::non_privileged()
+        | serenity::GatewayIntents::GUILD_MEMBERS
         | serenity::GatewayIntents::MESSAGE_CONTENT;
 
     let mut client = serenity::ClientBuilder::new(token, intents)

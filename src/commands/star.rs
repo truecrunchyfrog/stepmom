@@ -1,7 +1,6 @@
-use crate::{Context, Error, Data};
-use log::info;
-use poise::{serenity_prelude::{self as serenity, futures::future::join_all, CacheHttp, ChannelId, GuildChannel, Http, Mention, Message, MessageBuilder, MessageId}, Modal};
-use crate::prelude::*;
+use crate::{prelude::{create_message_ref, sub_coins, take_coins, ActOnUser}, Context, Data, Error};
+use poise::{serenity_prelude::{self as serenity, futures::future::join_all, CacheHttp, ChannelId, CreateAllowedMentions, CreateAttachment, CreateEmbed, CreateEmbedAuthor, CreateEmbedFooter, CreateMessage, FutureExt, GuildChannel, Http, Mention, Mentionable, Message, MessageBuilder, MessageId}, Modal};
+use serde::Serialize;
 
 type ApplicationContext<'a> = poise::ApplicationContext<'a, Data, Error>;
 
@@ -12,12 +11,12 @@ struct StarModal {
     cost: String
 }
 
-fn message_starring_cost(message: serenity::Message) -> usize {
+fn message_starring_cost(message: &serenity::Message) -> usize {
     let content_length = message.content.len();
     let attachments_length = message.attachments.len();
 
     300 +
-        (content_length as f64 * 1.0/3.0) as usize +
+        content_length / 3 +
         attachments_length * 100
 }
 
@@ -41,7 +40,7 @@ pub async fn star(
             FROM starred_messages
             JOIN message_refs AS source_msg ON source_id = source_msg.id
             JOIN message_refs AS repost_msg ON repost_id = repost_msg.id
-            WHERE source_id = $1
+            WHERE source_msg.message_id = $1
         "#,
         msg_id)
         .fetch_optional(&ctx.data.db_pool).await?;
@@ -63,14 +62,99 @@ pub async fn star(
                 )))
     }
 
-    let cost = message_starring_cost(message);
+    let starboard_channel = ctx.http().get_channel(
+        ChannelId::new(ctx.data.config.starboard_channel)).await?
+        .guild().unwrap();
+
+    if message.channel_id == starboard_channel.id {
+        return Err(Error::from("Messages cannot be starred in this channel."))
+    }
+
+    let cost = message_starring_cost(&message);
 
     if let Some(data) = poise::modal::execute_modal(ctx, Some(StarModal { cost: cost.to_string() }), None).await? {
         if data.cost.parse::<usize>().unwrap_or(0) != cost {
             return Err(Error::from("Cost did not match, and was probably changed by user. Canceled."))
         }
 
-        info!("star message here!");
+        take_coins(
+            &ActOnUser(&ctx.data.db_pool, ctx.author().id),
+            cost as u64,
+            "message starring",
+            None).await?;
+
+        let repost = starboard_channel.send_message(ctx.http(), CreateMessage::new()
+            .content(format!("
+-# originally posted by {} in {} <t:{}:R>
+-# starred by {}\n
+{}
+            ",
+            message.author.mention(),
+            message.link(),
+            message.edited_timestamp.unwrap_or(message.timestamp).unix_timestamp(),
+            ctx.author().mention(),
+            message.content
+            ))
+
+            /*.embeds(message.embeds.iter().map(|e| {
+                let ce = CreateEmbed::new();
+
+                if let Some(a) = &e.author {
+                    let ca = CreateEmbedAuthor::new(&a.name);
+
+                    if let Some(url) = &a.url { &ca.url(url); }
+                    if let Some(icon_url) = &a.icon_url { &ca.icon_url(icon_url); }
+
+                    ce.author(ca);
+                }
+
+                if let Some(f) = &e.footer {
+                    let cf = CreateEmbedFooter::new(&f.text);
+
+                    if let Some(icon_url) = &f.icon_url { &cf.icon_url(icon_url); }
+
+                    ce.footer(cf);
+                }
+
+                if let Some(description) = &e.description { &ce.description(description); }
+
+                if let Some(color) = &e.colour { &ce.color(*color); }
+
+                if let Some(url) = &e.url { &ce.url(url); }
+
+                if let Some(title) = &e.title { &ce.title(title); }
+
+                if let Some(thumbnail) = &e.thumbnail { &ce.thumbnail(thumbnail.url); }
+
+                if let Some(timestamp) = &e.timestamp { &ce.timestamp(timestamp); }
+
+                for field in &e.fields {
+                    ce.field(&field.name, &field.value, field.inline);
+                }
+
+                if let Some(image) = &e.image { ce.image(image.url); }
+
+                ce
+            }).collect())*/
+
+            .files(join_all(message.attachments.iter().map(|a| {
+                CreateAttachment::url(ctx.http(), &a.url)
+            })).await.into_iter().flatten())
+
+            .allowed_mentions(CreateAllowedMentions::new())
+        ).await?;
+
+        let source_id = create_message_ref(&ctx.data.db_pool, &message).await;
+        let repost_id = create_message_ref(&ctx.data.db_pool, &repost).await;
+
+        let user_id = i64::from(ctx.author().id);
+
+        sqlx::query!("
+            INSERT INTO starred_messages
+            VALUES ($2, $3, (SELECT id FROM users WHERE uid = $1))
+            ", user_id, source_id, repost_id)
+            .execute(&ctx.data.db_pool)
+            .await?;
     }
 
     Ok(())

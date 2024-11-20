@@ -1,12 +1,10 @@
 pub mod study;
 
-use std::{borrow::{Borrow, BorrowMut}, time::Duration};
 
-use poise::serenity_prelude::{self as serenity, futures::lock::Mutex, ChannelId, FullEvent::{self, *}, UserId, VoiceState};
+use poise::serenity_prelude::FullEvent::{self, *};
 use study::voice_state_update;
-use tokio::time::Instant;
 
-use crate::{prelude::{create_user, ActOnUser}, Channels, Data};
+use crate::{prelude::{create_user, ActOnUser}, Data};
 
 pub async fn event_handler(data: &Data, event: &FullEvent) {
     match event {

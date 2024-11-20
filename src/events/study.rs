@@ -1,10 +1,10 @@
-use std::{borrow::{Borrow, BorrowMut}, time::Duration};
+use std::time::Duration;
 
 use humantime::format_duration;
-use poise::serenity_prelude::{self as serenity, futures::lock::Mutex, ChannelId, CreateMessage, FullEvent::{self, *}, MessageBuilder, User, UserId, VoiceState};
+use poise::serenity_prelude::{futures::lock::Mutex, ChannelId, CreateMessage, MessageBuilder, User, UserId, VoiceState};
 use tokio::time::Instant;
 
-use crate::{prelude::{create_user, ActOnUser}, Channels, Data};
+use crate::{Channels, Data};
 
 fn is_study_vc(channels_config: &Channels, channel_id: ChannelId) -> bool {
     !channels_config.slacking_voice_channels.contains(&u64::from(channel_id))
@@ -59,7 +59,7 @@ pub async fn voice_state_update(data: &Data, old: Option<&VoiceState>, new: &Voi
         _ => ()
     }
 
-    video_state_update(data, new);
+    video_state_update(data, new).await;
 }
 
 async fn begin_studying(data: &Data, user_id: UserId) {
@@ -76,7 +76,7 @@ async fn end_studying(data: &Data, user_id: UserId) {
     let mut study_states = data.study_states.lock().await;
 
     let Some(state) = study_states.remove(&user_id) else { return };
-    state.sum_progress();
+    state.sum_progress().await;
 
     let duration = state.start.elapsed();
     let video_sum = state.video_sum.into_inner();
@@ -138,7 +138,7 @@ async fn video_state_update(data: &Data, voice_state: &VoiceState) {
             *stream_start = Some(Instant::now());
         }
         (Some(_), false) => {
-            state.sum_progress();
+            state.sum_progress().await;
         }
         _ => ()
     }

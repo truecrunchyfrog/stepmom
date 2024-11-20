@@ -1,6 +1,5 @@
-use crate::{prelude::{create_message_ref, sub_coins, take_coins, ActOnUser}, Context, Data, Error};
-use poise::{serenity_prelude::{self as serenity, futures::future::join_all, CacheHttp, ChannelId, CreateAllowedMentions, CreateAttachment, CreateEmbed, CreateEmbedAuthor, CreateEmbedFooter, CreateMessage, FutureExt, GuildChannel, Http, Mention, Mentionable, Message, MessageBuilder, MessageId}, Modal};
-use serde::Serialize;
+use crate::{prelude::{create_message_ref, take_coins, ActOnUser}, Data, Error};
+use poise::{serenity_prelude::{self as serenity, futures::future::join_all, CacheHttp, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, FutureExt, Mentionable, MessageId}, Modal};
 
 type ApplicationContext<'a> = poise::ApplicationContext<'a, Data, Error>;
 

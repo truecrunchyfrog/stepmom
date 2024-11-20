@@ -30,11 +30,9 @@ pub async fn get_balance<'a>(ctx: &ActOnUser<'a>) -> u64 {
     let uid = ctx.uid();
 
     sqlx::query!("
-    WITH
-        id AS (SELECT id FROM users WHERE uid = $1)
-    SELECT IFNULL(SUM(coins_diff), 0) AS balance
-    FROM coin_transactions
-    WHERE user_id = id
+    SELECT IFNULL(SUM(coins_diff), 0) AS balance FROM users
+    JOIN coin_transactions ON users.id = coin_transactions.user_id
+    WHERE uid = $1
     ", uid)
         .fetch_one(ctx.0)
         .await
@@ -48,7 +46,7 @@ pub async fn coin_transaction<'a>(ctx: &ActOnUser<'a>, balance_diff: i64) -> boo
     sqlx::query!("
     WITH user AS (
             SELECT users.id, IFNULL(SUM(coins_diff), 0) AS balance FROM users
-            LEFT JOIN coin_transactions ON users.id = coin_transactions.user_id
+            JOIN coin_transactions ON users.id = coin_transactions.user_id
             WHERE uid = $1
         )
     INSERT INTO coin_transactions (user_id, coins_diff)

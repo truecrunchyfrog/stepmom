@@ -1,11 +1,17 @@
 mod prelude;
 mod commands;
+mod events;
 
 use core::panic;
+use std::collections::HashMap;
 use std::fs;
 use dotenv::dotenv;
+use events::event_handler;
+use events::study::StudyState;
 use log::{error, info};
+use poise::serenity_prelude::futures::lock::Mutex;
 use poise::serenity_prelude::CacheHttp;
+use poise::serenity_prelude::UserId;
 use poise::CreateReply;
 use poise::serenity_prelude as serenity;
 use serde::Deserialize;
@@ -14,12 +20,19 @@ use std::{sync::Arc, time::Duration};
 
 #[derive(Deserialize)]
 pub struct Config {
-    starboard_channel: u64
+    channels: Channels
+}
+
+#[derive(Deserialize)]
+pub struct Channels {
+    starboard_channel: u64,
+    slacking_voice_channels: Vec<u64>
 }
 
 pub struct Data {
     config: Config,
-    db_pool: sqlx::SqlitePool
+    db_pool: sqlx::SqlitePool,
+    study_states: Mutex<HashMap<UserId, StudyState>>
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -37,7 +50,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                     "-# Command *{}* failed\n>>> {}",
                     ctx.command().name,
                     error
-                ))),
+                )))
             )
             .await.unwrap();
         }
@@ -60,7 +73,7 @@ async fn main() -> Result<(), sqlx::Error> {
     let config: Config = toml::from_str(&fs::read_to_string(config_filename)
         .unwrap()).unwrap();
 
-    let pool = SqlitePoolOptions::new()
+    let db_pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect(&std::env::var("SQLITE_CONNSTR")
             .expect("Missing SQLITE_CONNSTR environment variable"))
@@ -93,15 +106,7 @@ async fn main() -> Result<(), sqlx::Error> {
             Box::pin(async move {
                 info!("Event handler: {:?}", event.snake_case_name());
 
-                match event {
-                    serenity::FullEvent::GuildMemberAddition { new_member } => {
-                        let user_id = i64::from(new_member.user.id);
-                        sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", user_id)
-                            .execute(&data.db_pool)
-                            .await?;
-                    },
-                    _ => ()
-                }
+                event_handler(data, event).await;
 
                 Ok(())
             })
@@ -125,7 +130,7 @@ async fn main() -> Result<(), sqlx::Error> {
                     for member in members {
                         let user_id = i64::from(member.user.id);
                         sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", user_id)
-                            .execute(&pool)
+                            .execute(&db_pool)
                             .await?;
                     }
                 }
@@ -139,7 +144,8 @@ async fn main() -> Result<(), sqlx::Error> {
 
                 Ok(Data {
                     config,
-                    db_pool: pool
+                    db_pool,
+                    study_states: HashMap::new().into()
                 })
             })
         })
@@ -150,6 +156,7 @@ async fn main() -> Result<(), sqlx::Error> {
         std::env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN environment variable");
 
     let intents = serenity::GatewayIntents::non_privileged()
+        | serenity::GatewayIntents::GUILD_VOICE_STATES
         | serenity::GatewayIntents::GUILD_MEMBERS
         | serenity::GatewayIntents::MESSAGE_CONTENT;
 

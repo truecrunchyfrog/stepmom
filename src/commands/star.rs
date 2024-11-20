@@ -63,7 +63,7 @@ pub async fn star(
     }
 
     let starboard_channel = ctx.http().get_channel(
-        ChannelId::new(ctx.data.config.starboard_channel)).await?
+        ChannelId::new(ctx.data.config.channels.starboard_channel)).await?
         .guild().unwrap();
 
     if message.channel_id == starboard_channel.id {

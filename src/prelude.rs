@@ -29,10 +29,14 @@ impl ActOnUser<'_> {
 pub async fn get_balance<'a>(ctx: &ActOnUser<'a>) -> u64 {
     let uid = ctx.uid();
 
-    sqlx::query!(
-        "SELECT coins FROM users WHERE uid = $1",
-        uid
-    )
+    sqlx::query!("
+    WITH
+        user AS (SELECT id FROM users WHERE uid = $1)
+    SELECT
+        SUM(coins_diff) AS balance
+    FROM coin_transactions
+    WHERE user_id = user.id
+    ", uid)
         .fetch_one(ctx.0)
         .await
         .unwrap()
@@ -106,4 +110,12 @@ impl fmt::Debug for InsufficientFundsError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Insufficient funds while trying to pay for `{}`. Have {}. Need {}.", self.product, self.balance, self.cost)
     }
+}
+
+pub async fn create_user(ctx: &ActOnUser<'_>) {
+    let user_id = ctx.uid();
+    sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", user_id)
+        .execute(ctx.0)
+        .await
+        .unwrap();
 }

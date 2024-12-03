@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{error::Error, time::Duration};
+use std::error::Error;
 
 use sqlx::SqlitePool;
 use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, Mentionable, Message, User, UserId};

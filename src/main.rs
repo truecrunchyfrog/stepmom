@@ -77,7 +77,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             )
             .await.unwrap();
         }
-        poise::FrameworkError::EventHandler { error, ctx, event, framework, .. } => {
+        poise::FrameworkError::EventHandler { error,    .. } => {
             error!("Error in event handler: {:?}", error);
         }
         error => {

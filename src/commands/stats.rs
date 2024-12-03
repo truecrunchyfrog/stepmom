@@ -1,11 +1,10 @@
-use std::{fs::{remove_file, File}, path::Path, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use charming::{component::{Axis, Title}, element::AxisType, series::Line, theme::Theme, Chart, ImageRenderer};
 use chrono::{NaiveDate, Utc};
 use humantime::{format_duration, parse_duration};
-use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, CreateAttachment, CreateMessage, MessageBuilder, User}, CreateReply};
-use rand::Rng;
-use resvg::{tiny_skia::{Pixmap, PixmapMut}, usvg::{Options, Transform, Tree}};
+use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, CreateAttachment, MessageBuilder, User}, CreateReply};
+use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
 
 use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::{user_balance, ActOnUser}, study::user_streak, Context, Error};
 

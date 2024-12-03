@@ -1,4 +1,4 @@
-use crate::{prelude::{create_message_ref, take_coins, ActOnUser}, Data, Error, StarCost};
+use crate::{prelude::{create_message_ref, take_coins, ActOnUser}, Error, StarCost};
 use poise::{serenity_prelude::{self as serenity, futures::future::join_all, CacheHttp, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, FutureExt, Mentionable, MessageId}, Modal};
 
 use super::ApplicationContext;

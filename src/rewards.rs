@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use humantime::format_duration;
-use poise::serenity_prelude::CreateMessage;
 use rand::Rng;
 
 use crate::prelude::{add_coins, ActOnUser};

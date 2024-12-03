@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use humantime::{format_duration, parse_duration};
 use log::info;
-use poise::{serenity_prelude::{CacheHttp, ComponentInteraction, Context, EditMessage, UserId}, Modal};
+use poise::{serenity_prelude::{CacheHttp, ComponentInteraction, Context, EditMessage}, Modal};
 use poise::modal;
 
 use crate::{Data, Error};

@@ -237,7 +237,7 @@ pub async fn stats(
                     .user(ctx.author())
                     .push_line("")
 
-                    .push(":crown: ")
+                    .push(":ladder: ")
                     .push_line(
                         place
                         .map(|p| format!("**{}** - leaderboard place", p))

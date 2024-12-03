@@ -55,6 +55,8 @@ pub async fn stats(
 
     match statistic {
         Some(stat) => {
+            let msg = ctx.reply("Generating chart...").await?;
+
             let uid = i64::from(user.id);
 
             let date = date.map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d"))
@@ -216,8 +218,9 @@ pub async fn stats(
 
             let png = pixmap.encode_png()?;
 
-            ctx.send(
+            msg.edit(ctx,
                 CreateReply::default()
+                .content("")
                 .attachment(CreateAttachment::bytes(png, "chart.png"))
             ).await?;
         }

@@ -373,11 +373,11 @@ async fn result_message(result: StudyResult<'_>, config: &Config) -> CreateMessa
 
         match result.leaderboard_place {
             Some((current_place, None)) => {
-                b.push("Leaderboard: ");
+                b.push(":ladder: Leaderboard: ");
                 b.push_bold_line(current_place.to_string());
             }
             Some((current_place, Some(previous_place))) => {
-                b.push("Leaderboard climbed: ");
+                b.push(":ladder::arrow_up: Leaderboard climbed: ");
                 b.push_bold(previous_place.to_string());
                 b.push(" → ");
                 b.push_bold(current_place.to_string());

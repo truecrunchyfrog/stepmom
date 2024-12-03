@@ -24,7 +24,7 @@ pub async fn user_place(ctx: &ActOnUser<'_>, after: OffsetDateTime) -> Option<u1
     LEFT JOIN leaderboard_optout ON users.id = leaderboard_optout.user_id
     WHERE leaderboard_optout.user_id IS NULL AND ended > $1
     GROUP BY users.id
-    HAVING users.id = $2
+    HAVING users.id IN (SELECT id FROM users WHERE uid = $2)
     ", after, uid)
         .fetch_optional(ctx.0)
         .await

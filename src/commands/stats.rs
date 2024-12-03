@@ -49,7 +49,7 @@ pub async fn stats(
     date: Option<String>,
     #[description = "Period"]
     #[autocomplete = "autocomplete_period"]
-    period: Option<String>,
+    period: Option<String>
 ) -> Result<(), Error> {
     let user = user.as_ref().unwrap_or_else(|| ctx.author());
 
@@ -179,11 +179,6 @@ pub async fn stats(
                 }
             };
 
-            let path = &format!(
-                "{}/{}.jpg",
-                ctx.data().config.temp_charts_dir,
-                rand::thread_rng().gen_range(10_000..100_000));
-
             let chart = Chart::new()
                 .title(Title::new().text(title))
                 .x_axis(
@@ -200,7 +195,7 @@ pub async fn stats(
 
             let mut renderer =
                 Box::new(
-                    ImageRenderer::new(1024,512)
+                    ImageRenderer::new(1024, 512)
                     .theme(Theme::Walden));
 
             let svg_string = renderer.render(&chart)?;
@@ -243,7 +238,7 @@ pub async fn stats(
                     .push_line(
                         place
                         .map(|p| format!("**{}** - leaderboard place", p))
-                            .unwrap_or("Not in leaderboard".to_string()))
+                            .unwrap_or("Not on leaderboard".to_string()))
 
                     .push(":wing: ")
                     .push_bold(streak.to_string())

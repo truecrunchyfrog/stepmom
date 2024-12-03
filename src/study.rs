@@ -6,7 +6,7 @@ use rand::Rng;
 use sqlx::types::time::OffsetDateTime;
 use tokio::time::Instant;
 
-use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::{try_dm_or_in_guild, ActOnUser}, rewards::{user_claim_reward, Reward}, Channels, Data, Error};
+use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::{try_dm_or_in_guild, ActOnUser}, rewards::{user_claim_reward, Reward}, Channels, Config, Data, Error};
 
 fn is_study_vc(channels_config: &Channels, channel_id: ChannelId) -> bool {
     !channels_config.slacking_voice_channels.contains(&u64::from(channel_id))
@@ -265,7 +265,7 @@ pub async fn finish_session(ctx: &Context, data: &Data, user_id: UserId, state: 
             leaderboard_place: lb_place_after.map(|after| (after, lb_place_before)),
             coins,
             streak: (streak_after, streak_before)
-        }).await);
+        }, &data.config).await);
 
         messages.extend(claimed_rewards.iter().map(|r| {
             CreateMessage::new()
@@ -313,31 +313,29 @@ fn random_video_reward_time() -> Duration {
 pub async fn user_streak(ctx: &ActOnUser<'_>) -> u16 {
     let uid = ctx.uid();
 
-    let study_days = sqlx::query!("
-    SELECT DISTINCT JULIANDAY(DATE(ended, 'unixepoch')) AS date
-    FROM study_sessions
-    WHERE
-        user_id IN (SELECT id FROM users WHERE uid = $1) AND
-        length > 10 * 60
-    ORDER BY ended DESC
+    sqlx::query!("
+    WITH RECURSIVE session_date_range AS (
+        WITH sessions AS (
+            SELECT DISTINCT DATE(ended) AS date
+            FROM study_sessions
+            WHERE
+                user_id IN (SELECT id FROM users WHERE uid = $1) AND
+                length > 10 * 60
+            ORDER BY ended DESC
+        )
+        SELECT DATE('now') AS date
+        WHERE DATE('now') IN sessions
+        UNION ALL
+        SELECT DATE(date, '-1 day') FROM session_date_range
+        WHERE DATE(date, '-1 day') IN sessions
+    ) SELECT COUNT(*) AS streak FROM session_date_range
     ", uid)
-        .fetch_all(ctx.0)
-        .await.unwrap();
-
-    study_days
-        .iter()
-        .flat_map(|r| r.date)
-        .map(|r| r as i64)
-        .fold((0u16, -1i64), |acc, d| {
-            if d == acc.1 - 1 || acc.1 == -1 {
-                (acc.0 + 1, d)
-            } else {
-                (acc.0, 0)
-            }
-        }).0
+        .fetch_one(ctx.0)
+        .await.unwrap()
+        .streak as u16
 }
 
-async fn result_message(result: StudyResult<'_>) -> CreateMessage {
+async fn result_message(result: StudyResult<'_>, config: &Config) -> CreateMessage {
     let content = {
         let mut b = MessageBuilder::new();
 
@@ -388,7 +386,7 @@ async fn result_message(result: StudyResult<'_>) -> CreateMessage {
         }
 
         b.push("-# Manage these results with ");
-        b.push_line(format!("</{}:{}>", "results", "1311019874134265928"));
+        b.push_line(format!("</{}:{}>", "results", config.results_command_id));
 
         b.push("-# Session ID: ");
         b.push_mono_line(result.session_id.to_string());

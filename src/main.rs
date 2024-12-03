@@ -28,7 +28,7 @@ pub struct Config {
     study_earnings: StudyEarnings,
     channels: Channels,
     star_cost: StarCost,
-    temp_charts_dir: String
+    results_command_id: u64
 }
 
 #[derive(Deserialize)]
@@ -67,11 +67,13 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             error!("Error in command: `{}`: {:?}", ctx.command().name, error);
 
             ctx.send(
-                ctx.reply_builder(CreateReply::default().ephemeral(true).content(format!(
-                    "-# Command *{}* failed\n>>> {}",
-                    ctx.command().name,
-                    error
-                )))
+                ctx.reply_builder(CreateReply::default()
+                    .ephemeral(true)
+                    .content(format!(
+                            "-# Command *{}* failed\n>>> {}",
+                            ctx.command().name,
+                            error
+                    )))
             )
             .await.unwrap();
         }

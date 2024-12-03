@@ -4,13 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+charming = { version = "0.4.0", features = ["ssr"] }
+chrono = "0.4.38"
 dotenv = "0.15.0"
 env_logger = "0.11.5"
 humantime = "2.1.0"
+image = "0.25.5"
 log = "0.4.22"
 poise = "0.6.1"
+rand = "0.8.5"
+regex = "1.11.1"
+resvg = { version = "0.44.0", features = ["text"] }
 serde = "1.0.215"
-sqlx = { version = "0.8.2", features = ["runtime-tokio", "sqlite"] }
+sqlx = { version = "0.8.2", features = ["chrono", "runtime-tokio", "sqlite", "time"] }
+time = "0.3.36"
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread"] }
 tokio-cron-scheduler = "0.13.0"
 toml = "0.8.19"

@@ -1,7 +1,7 @@
-use crate::{prelude::{create_message_ref, take_coins, ActOnUser}, Data, Error};
+use crate::{prelude::{create_message_ref, take_coins, ActOnUser}, Data, Error, StarCost};
 use poise::{serenity_prelude::{self as serenity, futures::future::join_all, CacheHttp, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, FutureExt, Mentionable, MessageId}, Modal};
 
-type ApplicationContext<'a> = poise::ApplicationContext<'a, Data, Error>;
+use super::ApplicationContext;
 
 #[derive(Modal, Debug)]
 #[name = "Star message"]
@@ -10,13 +10,13 @@ struct StarModal {
     cost: String
 }
 
-fn message_starring_cost(message: &serenity::Message) -> usize {
+fn message_starring_cost(star_cost_config: &StarCost, message: &serenity::Message) -> u64 {
     let content_length = message.content.len();
     let attachments_length = message.attachments.len();
 
-    300 +
-        content_length / 3 +
-        attachments_length * 100
+    star_cost_config.base +
+        (content_length as f64 * star_cost_config.per_character) as u64 +
+        attachments_length as u64 * star_cost_config.per_attachment
 }
 
 #[poise::command(context_menu_command = "Star!", guild_only)]
@@ -69,10 +69,10 @@ pub async fn star(
         return Err(Error::from("Messages cannot be starred in this channel."))
     }
 
-    let cost = message_starring_cost(&message);
+    let cost = message_starring_cost(&ctx.data.config.star_cost, &message);
 
     if let Some(data) = poise::modal::execute_modal(ctx, Some(StarModal { cost: cost.to_string() }), None).await? {
-        if data.cost.parse::<usize>().unwrap_or(0) != cost {
+        if data.cost.parse::<u64>().unwrap_or(0) != cost {
             return Err(Error::from("Cost did not match, and was probably changed by user. Canceled."))
         }
 

@@ -1,13 +1,18 @@
 mod prelude;
 mod commands;
 mod events;
+mod leaderboard;
+mod study;
+mod rewards;
 
 use core::panic;
 use std::collections::HashMap;
 use std::fs;
 use dotenv::dotenv;
 use events::event_handler;
-use events::study::StudyState;
+use prelude::create_user;
+use prelude::ActOnUser;
+use crate::study::StudyState;
 use log::{error, info};
 use poise::serenity_prelude::futures::lock::Mutex;
 use poise::serenity_prelude::CacheHttp;
@@ -20,14 +25,31 @@ use std::{sync::Arc, time::Duration};
 
 #[derive(Deserialize)]
 pub struct Config {
-    channels: Channels
+    study_earnings: StudyEarnings,
+    channels: Channels,
+    star_cost: StarCost,
+    temp_charts_dir: String
+}
+
+#[derive(Deserialize)]
+pub struct StudyEarnings {
+    coins_per_minute: u64
 }
 
 #[derive(Deserialize)]
 pub struct Channels {
+    dm_backup_channel: u64,
     starboard_channel: u64,
     slacking_voice_channels: Vec<u64>
 }
+
+#[derive(Deserialize)]
+pub struct StarCost {
+    base: u64,
+    per_character: f64,
+    per_attachment: u64
+}
+
 
 pub struct Data {
     config: Config,
@@ -36,7 +58,6 @@ pub struct Data {
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
-#[allow(dead_code)]
 type Context<'a> = poise::Context<'a, Data, Error>;
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -53,6 +74,9 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                 )))
             )
             .await.unwrap();
+        }
+        poise::FrameworkError::EventHandler { error, ctx, event, framework, .. } => {
+            error!("Error in event handler: {:?}", error);
         }
         error => {
             if let Err(e) = poise::builtins::on_error(error).await {
@@ -80,7 +104,12 @@ async fn main() -> Result<(), sqlx::Error> {
         .await?;
 
     let options = poise::FrameworkOptions {
-        commands: vec![commands::star::star()],
+        commands: vec![
+            commands::stats::stats(),
+            commands::star::star(),
+            commands::simulate_study_session::simulate_study_session(),
+            commands::results::results()
+        ],
 
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("mom ".into()),
@@ -102,13 +131,9 @@ async fn main() -> Result<(), sqlx::Error> {
             })
         },
         command_check: Some(|_ctx| Box::pin(async move { Ok(true) })),
-        event_handler: |_ctx, event, _framework, data| {
+        event_handler: |ctx, event, _framework, data| {
             Box::pin(async move {
-                info!("Event handler: {:?}", event.snake_case_name());
-
-                event_handler(data, event).await;
-
-                Ok(())
+                event_handler(ctx, event, data).await
             })
         },
         ..Default::default()
@@ -125,13 +150,13 @@ async fn main() -> Result<(), sqlx::Error> {
                     .await?;
 
                 for guild in guilds {
-                    let members = ctx.http().get_guild_members(guild.id, None, None)
+                    let members = ctx.http()
+                        .get_guild_members(guild.id, None, None)
                         .await?;
                     for member in members {
-                        let user_id = i64::from(member.user.id);
-                        sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", user_id)
-                            .execute(&db_pool)
-                            .await?;
+                        if !member.user.bot {
+                            create_user(&ActOnUser(&db_pool, member.user.id)).await;
+                        }
                     }
                 }
 
@@ -162,8 +187,7 @@ async fn main() -> Result<(), sqlx::Error> {
 
     let mut client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
-        .await
-        .expect("Error creating client");
+        .await.expect("Error creating client");
 
     info!("Starting Discord client...");
     if let Err(why) = client.start().await {

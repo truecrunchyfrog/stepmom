@@ -4,6 +4,7 @@ mod events;
 mod leaderboard;
 mod study;
 mod rewards;
+mod bumping;
 
 use core::panic;
 use std::collections::HashMap;
@@ -22,28 +23,32 @@ use poise::serenity_prelude as serenity;
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::{sync::Arc, time::Duration};
+use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Config {
     study_earnings: StudyEarnings,
     channels: Channels,
     star_cost: StarCost,
-    results_command_id: u64
+    results_command_id: u64,
+    bump_reminder_delay: u64,
+    bump_bot_id: u64
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct StudyEarnings {
     coins_per_minute: u64
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Channels {
+    bump_reminder_channel: u64,
     dm_backup_channel: u64,
     starboard_channel: u64,
     slacking_voice_channels: Vec<u64>
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct StarCost {
     base: u64,
     per_character: f64,
@@ -54,6 +59,7 @@ pub struct StarCost {
 pub struct Data {
     config: Config,
     db_pool: sqlx::SqlitePool,
+    scheduler: JobScheduler,
     study_states: Mutex<HashMap<UserId, StudyState>>
 }
 
@@ -169,9 +175,12 @@ async fn main() -> Result<(), sqlx::Error> {
                     serenity::OnlineStatus::Idle,
                 );
 
+                let scheduler = create_scheduler().await?;
+
                 Ok(Data {
                     config,
                     db_pool,
+                    scheduler,
                     study_states: HashMap::new().into()
                 })
             })
@@ -195,6 +204,18 @@ async fn main() -> Result<(), sqlx::Error> {
     if let Err(why) = client.start().await {
         error!("Client error: {why:?}");
     }
+
+    Ok(())
+}
+
+async fn create_scheduler() -> Result<JobScheduler, JobSchedulerError> {
+    let sched = JobScheduler::new().await?;
+    sched.start().await?;
+    Ok(sched)
+}
+
+pub async fn add_scheduler_items(ctx: &serenity::Context, data: &Data) -> Result<(), JobSchedulerError> {
+    data.scheduler.add(bumping::bump_reminder_job(ctx, data)).await?;
 
     Ok(())
 }

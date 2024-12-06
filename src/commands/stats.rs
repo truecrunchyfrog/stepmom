@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use charming::{component::{Axis, Title}, element::AxisType, series::Line, theme::Theme, Chart, ImageRenderer};
+use charming::{component::{Axis, Title}, element::{AreaStyle, AxisType}, series::Line, theme::Theme, Chart, ImageRenderer};
 use chrono::{NaiveDate, Utc};
 use humantime::{format_duration, parse_duration};
 use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, CreateAttachment, MessageBuilder, User}, CreateReply};
@@ -54,7 +54,10 @@ pub async fn stats(
 
     match statistic {
         Some(stat) => {
-            let msg = ctx.reply("Generating chart...").await?;
+            let msg = ctx.send(
+                CreateReply::default()
+                .content("Generating chart...")
+            ).await?;
 
             let uid = i64::from(user.id);
 
@@ -192,7 +195,11 @@ pub async fn stats(
                         .flat_map(|r| &r.date)
                         .collect()))
                 .y_axis(Axis::new().type_(AxisType::Value).name(y_axis_label))
-                .series(Line::new().data(data));
+                .series(
+                    Line::new()
+                    .area_style(AreaStyle::new())
+                    .data(data)
+                );
 
             let mut renderer =
                 Box::new(
@@ -217,11 +224,11 @@ pub async fn stats(
 
             let png = pixmap.encode_png()?;
 
-            msg.edit(ctx,
+            ctx.send(
                 CreateReply::default()
-                .content("")
                 .attachment(CreateAttachment::bytes(png, "chart.png"))
             ).await?;
+            msg.delete(ctx).await?;
         }
         None => {
             let act_on_user_ctx = ActOnUser(&ctx.data().db_pool, user.id);

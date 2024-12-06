@@ -19,5 +19,5 @@ serde = "1.0.215"
 sqlx = { version = "0.8.2", features = ["chrono", "runtime-tokio", "sqlite", "time"] }
 time = "0.3.36"
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread"] }
-tokio-cron-scheduler = "0.13.0"
+tokio-cron-scheduler = { version = "0.13.0", features = ["english"] }
 toml = "0.8.19"

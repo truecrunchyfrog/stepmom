@@ -1,6 +1,6 @@
 # Momentum, now with momentum!
 Momentum (he/she) is a bot for the amazing Discord community Study Fam.
-She is not a tool, but an assistant, and friend, for our fellow members who study with us.
+She is not a tool, but an assistant, and friend, to our fellow members who study with us.
 
 Stepmom, or Momentum, is a complete rewrite of Momentum which was originally written in Python with Discord.py in 2020.
 It is rewritten in Rust with Serenity/Poise as a Discord library, and with SQLite + SQLX instead of MongoDB + pymongo.

@@ -46,13 +46,11 @@ pub async fn coin_transaction<'a>(ctx: &ActOnUser<'a>, balance_diff: i64) -> boo
     let uid = ctx.uid();
 
     sqlx::query!("
-    WITH user AS (
-            SELECT users.id, COALESCE(SUM(coins_diff), 0) AS balance FROM users
-            JOIN coin_transactions ON users.id = coin_transactions.user_id
-            WHERE uid = $1
-        )
     INSERT INTO coin_transactions (user_id, coins_diff)
-    SELECT id, $2 FROM user WHERE balance + $2 >= 0
+    SELECT users.id, $2 FROM users
+    JOIN coin_transactions t ON users.id = t.user_id
+    GROUP BY users.id
+    HAVING uid = $1 AND COALESCE(SUM(coins_diff), 0) + $2 >= 0
     ", uid, balance_diff)
         .execute(ctx.0)
         .await

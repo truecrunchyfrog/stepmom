@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use humantime::format_duration;
+use num_format::{Locale, ToFormattedString};
+use poise::serenity_prelude::{Mentionable, RoleId};
 use rand::Rng;
 
 use crate::prelude::{add_coins, ActOnUser};
@@ -8,25 +10,11 @@ use crate::prelude::{add_coins, ActOnUser};
 #[derive(Clone, Copy)]
 pub enum Reward {
     Coins(u64),
-    Booster { multiplier: u16, expiration: Duration }
+    Booster { multiplier: u16, expiration: Duration },
+    Role(RoleId)
 }
 
 impl Reward {
-    /*pub fn to_message(self) -> CreateMessage {
-        let (emoji, description) = match self {
-            Reward::Coins(amount) =>
-                (":purse:", format!("{} coins", amount)),
-            Reward::Booster { multiplier, expiration } =>
-                (":zap:", format!(
-                        "a {}x booster (expires in {})",
-                        multiplier as f64 / 100.0,
-                        format_duration(expiration)))
-        };
-        CreateMessage::new()
-            .content(format!(
-                    "*A mysterious frog appears...*\n## :frog:     ||{}||\n## :index_pointing_at_the_viewer:    :palm_up_hand:\n> Take this, ||{}.||", emoji, description))
-    }*/
-
     pub fn random() -> Self {
         let mut rng = rand::thread_rng();
         match rng.gen_range(0..100) {
@@ -40,31 +28,46 @@ impl Reward {
     }
 }
 
+impl ToString for Reward {
+    fn to_string(&self) -> String {
+        match self {
+            Reward::Coins(amount) =>
+                format!(
+                    "{} coins",
+                    amount.to_formatted_string(&Locale::en)),
+            Reward::Booster { multiplier, expiration } =>
+                format!(
+                    "{}x booster (expires in {})",
+                    *multiplier as f64 / 100.0,
+                    format_duration(*expiration)),
+            Reward::Role(role_id) =>
+                role_id.mention().to_string()
+        }
+    }
+}
+
 pub async fn user_claim_reward(ctx: &ActOnUser<'_>, reward: Reward, reason: String) -> i64 {
     let uid = ctx.uid();
-    let description = match reward {
+    match reward {
         Reward::Coins(amount) => {
             add_coins(ctx, amount).await;
-            format!("+{} coins", amount)
         }
         Reward::Booster { multiplier, expiration } => {
-            {
-                let multiplier = multiplier as i64;
-                let expiration = expiration.as_secs() as i64;
-                sqlx::query!("
-                INSERT INTO boosters
-                VALUES (NULL, (SELECT id FROM users WHERE uid = $1), $2, UNIXEPOCH('now') + $3)
-                ", uid, multiplier, expiration)
-                    .execute(ctx.0)
-                    .await.unwrap();
-            }
-
-            format!(
-                "{}x booster (expires in {})",
-                multiplier as f64 / 100.0,
-                format_duration(expiration))
+            let multiplier = multiplier as i64;
+            let expiration = expiration.as_secs() as i64;
+            sqlx::query!("
+            INSERT INTO boosters
+            VALUES (NULL, (SELECT id FROM users WHERE uid = $1), $2, UNIXEPOCH() + $3)
+            ", uid, multiplier, expiration)
+                .execute(ctx.0)
+                .await.unwrap();
         }
-    };
+        Reward::Role(role_id) => {
+
+        }
+    }
+
+    let description = reward.to_string();
 
     sqlx::query!("
     INSERT INTO rewards (user_id, description, reason)

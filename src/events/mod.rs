@@ -4,8 +4,8 @@ mod reveal_reward;
 
 use interactions::interaction_handler;
 use log::info;
-use poise::serenity_prelude::{CacheHttp, Context, FullEvent::{self, *}, MessageCreateEvent};
-use crate::{add_scheduler_items, bumping::check_bump, study::voice_state_update, Error};
+use poise::serenity_prelude::{Context, FullEvent::{self, *}, InviteAction};
+use crate::{scheduling::add_scheduler_items, bumping::check_bump, study::voice_state_update, Error};
 
 use crate::{prelude::{create_user, ActOnUser}, Data};
 
@@ -14,7 +14,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent, data: &Data) -> Res
 
     match event {
         Ready { data_about_bot } => {
-            add_scheduler_items(ctx, data);
+            add_scheduler_items(ctx, data).await?;
             Ok(())
         }
         Message { new_message } => {

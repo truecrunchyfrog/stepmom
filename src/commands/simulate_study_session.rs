@@ -33,7 +33,13 @@ pub async fn simulate_study_session(
         break_sum: Duration::ZERO.into()
     };
 
-    finish_session(ctx.serenity_context(), ctx.data(), user.id, study_state, alert).await;
+    finish_session(
+        ctx.serenity_context(),
+        ctx.data(),
+        user.id,
+        study_state,
+        alert
+    ).await;
 
     let _ = ctx.reply("Session simulated.").await;
 

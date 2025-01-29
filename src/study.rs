@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use humantime::format_duration;
-use poise::serenity_prelude::{futures::{future::join_all, lock::Mutex}, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Mentionable, MessageBuilder, User, UserId, VoiceState};
+use poise::serenity_prelude::{futures::{future::join_all, lock::Mutex}, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Member, Mentionable, MessageBuilder, User, UserId, VoiceState};
 use rand::Rng;
 use sqlx::types::time::OffsetDateTime;
 use tokio::time::Instant;
@@ -109,7 +109,13 @@ async fn end_studying(ctx: &Context, data: &Data, user_id: UserId) {
     finish_session(ctx, data, user_id, state, true).await;
 }
 
-pub async fn finish_session(ctx: &Context, data: &Data, user_id: UserId, state: StudyState, alert: bool) {
+pub async fn finish_session(
+    ctx: &Context,
+    data: &Data,
+    user_id: UserId,
+    state: StudyState,
+    alert: bool
+) {
     state.sum_video_progress().await;
     state.sum_break_progress().await;
 

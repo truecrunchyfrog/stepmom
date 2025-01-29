@@ -3,10 +3,11 @@ use std::{sync::Arc, time::Duration};
 use charming::{component::{Axis, Title}, element::{AreaStyle, AxisType}, series::Line, theme::Theme, Chart, ImageRenderer};
 use chrono::{NaiveDate, Utc};
 use humantime::{format_duration, parse_duration};
+use num_format::{Locale, ToFormattedString};
 use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, CreateAttachment, MessageBuilder, User}, CreateReply};
 use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
 
-use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::{user_balance, ActOnUser}, study::user_streak, Context, Error};
+use crate::{charts::render_chart_to_attachment, leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::{user_balance, ActOnUser}, study::user_streak, Context, Error};
 
 #[derive(poise::ChoiceParameter)]
 enum Statistic {
@@ -82,7 +83,7 @@ pub async fn stats(
                 .fetch_all(&ctx.data().db_pool)
                 .await.unwrap();
 
-            let (title, y_axis_label, data) = match stat {
+            let (title, y_axis_label, series) = match stat {
                 Statistic::Time => {
                     let data = sqlx::query!("
                     WITH RECURSIVE date_range AS (
@@ -110,10 +111,15 @@ pub async fn stats(
                         .await.unwrap();
 
                     ("Study time", "hours/day",
-                     data
-                     .iter()
-                     .map(|r| r.daily_time as f64 / 3600.0)
-                     .collect::<Vec<_>>())
+                     vec![
+                     Line::new()
+                     .area_style(AreaStyle::new())
+                     .data(
+                         data
+                         .iter()
+                         .map(|r| r.daily_time as f64 / 3600.0)
+                         .collect::<Vec<_>>())
+                     ])
                 }
                 Statistic::VideoTime => {
                     let data = sqlx::query!("
@@ -142,10 +148,15 @@ pub async fn stats(
                         .await.unwrap();
 
                     ("Video time", "hours/day",
-                     data
-                     .iter()
-                     .map(|r| r.daily_video_time as f64 / 3600.0)
-                     .collect::<Vec<_>>())
+                     vec![
+                     Line::new()
+                     .area_style(AreaStyle::new())
+                     .data(
+                         data
+                         .iter()
+                         .map(|r| r.daily_video_time as f64 / 3600.0)
+                         .collect::<Vec<_>>())
+                     ])
                 }
                 Statistic::Balance => {
                     let data = sqlx::query!("
@@ -176,14 +187,18 @@ pub async fn stats(
                         .await.unwrap();
 
                     ("Balance", "Coins",
+                     vec![
+                     Line::new()
+                     .data(
                          data
                          .iter()
                          .map(|r| r.balance as f64)
                          .collect::<Vec<_>>())
+                     ])
                 }
             };
 
-            let chart = Chart::new()
+            let mut chart = Chart::new()
                 .title(Title::new().text(title))
                 .x_axis(
                     Axis::new()
@@ -194,39 +209,20 @@ pub async fn stats(
                         .iter()
                         .flat_map(|r| &r.date)
                         .collect()))
-                .y_axis(Axis::new().type_(AxisType::Value).name(y_axis_label))
-                .series(
-                    Line::new()
-                    .area_style(AreaStyle::new())
-                    .data(data)
-                );
+                .y_axis(Axis::new().type_(AxisType::Value).name(y_axis_label));
 
-            let mut renderer =
-                Box::new(
-                    ImageRenderer::new(1024, 512)
-                    .theme(Theme::Walden));
+            for s in series {
+                chart = chart.series(s);
+            }
 
-            let svg_string = renderer.render(&chart)?;
-            drop(renderer);
-
-            let mut font_db = resvg::usvg::fontdb::Database::new();
-            font_db.load_system_fonts();
-
-            let options = Options {
-                fontdb: Arc::new(font_db),
-                ..Default::default()
-            };
-            let rtree = Tree::from_str(&svg_string, &options)?;
-
-            let size = rtree.size();
-            let mut pixmap = Pixmap::new(size.width() as u32, size.height() as u32).unwrap();
-            resvg::render(&rtree, Transform::identity(), &mut pixmap.as_mut());
-
-            let png = pixmap.encode_png()?;
+            let attachment = render_chart_to_attachment(
+                &mut ImageRenderer::new(1024, 512)
+                .theme(Theme::Walden),
+                &chart)?;
 
             ctx.send(
                 CreateReply::default()
-                .attachment(CreateAttachment::bytes(png, "chart.png"))
+                .attachment(attachment)
             ).await?;
             msg.delete(ctx).await?;
         }
@@ -240,21 +236,23 @@ pub async fn stats(
             ctx.send(CreateReply::default()
                 .content(
                     MessageBuilder::new()
-                    .user(ctx.author())
+                    .user(user)
                     .push_line("")
 
                     .push(":ladder: ")
                     .push_line(
                         place
-                        .map(|p| format!("**{}** - leaderboard place", p))
-                            .unwrap_or("Not on leaderboard".to_string()))
+                        .map_or(
+                            "Not on leaderboard".to_string(),
+                            |p| format!("**{}** - leaderboard place", p))
+                    )
 
                     .push(":wing: ")
                     .push_bold(streak.to_string())
                     .push_line(" day streak")
 
                     .push(":purse: ")
-                    .push_bold(balance.to_string())
+                    .push_bold(balance.to_formatted_string(&Locale::en))
                     .push_line(" coins")
 
                     .build()

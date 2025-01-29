@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS starred_messages
   source_id INTEGER NOT NULL UNIQUE,
   repost_id INTEGER NOT NULL UNIQUE,
   starrer_id INTEGER NOT NULL,
+  content TEXT NOT NULL,
 
   FOREIGN KEY (source_id) REFERENCES message_refs (id) ON DELETE CASCADE,
   FOREIGN KEY (repost_id) REFERENCES message_refs (id) ON DELETE CASCADE,
@@ -120,4 +121,12 @@ CREATE TABLE IF NOT EXISTS video_rewards_time_left
   time_left INTEGER NOT NULL,
 
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS bumps
+(
+  user_id INTEGER,
+  timestamp INTEGER NOT NULL DEFAULT(UNIXEPOCH()),
+
+  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
 );

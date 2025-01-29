@@ -5,14 +5,18 @@ mod leaderboard;
 mod study;
 mod rewards;
 mod bumping;
+mod scheduling;
+mod charts;
 
 use core::panic;
 use std::collections::HashMap;
 use std::fs;
 use dotenv::dotenv;
 use events::event_handler;
+use poise::serenity_prelude::Message;
 use prelude::create_user;
 use prelude::ActOnUser;
+use scheduling::create_scheduler;
 use crate::study::StudyState;
 use log::{error, info};
 use poise::serenity_prelude::futures::lock::Mutex;
@@ -23,32 +27,35 @@ use poise::serenity_prelude as serenity;
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::{sync::Arc, time::Duration};
-use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
+use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
 
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 pub struct Config {
     study_earnings: StudyEarnings,
     channels: Channels,
     star_cost: StarCost,
+
     results_command_id: u64,
     bump_reminder_delay: u64,
-    bump_bot_id: u64
+    bump_bot_id: u64,
+    bump_command_id: u64
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 pub struct StudyEarnings {
     coins_per_minute: u64
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 pub struct Channels {
     bump_reminder_channel: u64,
     dm_backup_channel: u64,
     starboard_channel: u64,
-    slacking_voice_channels: Vec<u64>
+    slacking_voice_channels: Vec<u64>,
+    leaderboard_announcement_channel: u64
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 pub struct StarCost {
     base: u64,
     per_character: f64,
@@ -60,7 +67,8 @@ pub struct Data {
     config: Config,
     db_pool: sqlx::SqlitePool,
     scheduler: JobScheduler,
-    study_states: Mutex<HashMap<UserId, StudyState>>
+    study_states: Mutex<HashMap<UserId, StudyState>>,
+    last_bump_reminder: Arc<Mutex<Option<Message>>>
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -95,15 +103,14 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), sqlx::Error> {
+async fn main() -> Result<(), Error> {
     dotenv().ok();
 
     env_logger::init();
 
     let config_filename = std::env::var("config").unwrap_or(String::from("config.toml"));
 
-    let config: Config = toml::from_str(&fs::read_to_string(config_filename)
-        .unwrap()).unwrap();
+    let config: Config = toml::from_str(&fs::read_to_string(config_filename)?)?;
 
     let db_pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -116,7 +123,8 @@ async fn main() -> Result<(), sqlx::Error> {
             commands::stats::stats(),
             commands::star::star(),
             commands::simulate_study_session::simulate_study_session(),
-            commands::results::results()
+            commands::results::results(),
+            commands::leaderboard::leaderboard()
         ],
 
         prefix_options: poise::PrefixFrameworkOptions {
@@ -181,7 +189,8 @@ async fn main() -> Result<(), sqlx::Error> {
                     config,
                     db_pool,
                     scheduler,
-                    study_states: HashMap::new().into()
+                    study_states: HashMap::new().into(),
+                    last_bump_reminder: Arc::new(None.into())
                 })
             })
         })
@@ -204,18 +213,6 @@ async fn main() -> Result<(), sqlx::Error> {
     if let Err(why) = client.start().await {
         error!("Client error: {why:?}");
     }
-
-    Ok(())
-}
-
-async fn create_scheduler() -> Result<JobScheduler, JobSchedulerError> {
-    let sched = JobScheduler::new().await?;
-    sched.start().await?;
-    Ok(sched)
-}
-
-pub async fn add_scheduler_items(ctx: &serenity::Context, data: &Data) -> Result<(), JobSchedulerError> {
-    data.scheduler.add(bumping::bump_reminder_job(ctx, data)).await?;
 
     Ok(())
 }

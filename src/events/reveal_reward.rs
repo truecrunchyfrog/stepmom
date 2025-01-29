@@ -1,4 +1,4 @@
-use poise::serenity_prelude::{ComponentInteraction, Context, CreateInteractionResponse, CreateInteractionResponseMessage, MessageBuilder};
+use poise::serenity_prelude::{ComponentInteraction, Context, CreateAllowedMentions, CreateInteractionResponse, CreateInteractionResponseMessage, MessageBuilder};
 
 use crate::{Data, Error};
 
@@ -18,6 +18,7 @@ pub async fn reveal_reward(ctx: &Context, interaction: &ComponentInteraction, da
     interaction.create_response(&ctx, CreateInteractionResponse::UpdateMessage(
             CreateInteractionResponseMessage::new()
             .components(Vec::new()) // Remove "Reveal" button
+            .allowed_mentions(CreateAllowedMentions::new())
             .content(
                 MessageBuilder::new()
                 .push_line(format!("-# Congratulations! You deserve this {}.", reward.reason))

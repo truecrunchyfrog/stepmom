@@ -24,15 +24,9 @@ pub async fn star(
     ctx: ApplicationContext<'_>,
     message: serenity::Message
 ) -> Result<(), Error> {
-    struct StarredMessage {
-        repost_mid: i64,
-        repost_cid: i64,
-    }
-
     let msg_id = i64::from(message.id);
-    let existing_star_entry = sqlx::query_as!(
-        StarredMessage,
-        r#"
+
+    let existing_star_entry = sqlx::query!("
             SELECT
                 repost_msg.message_id AS repost_mid,
                 repost_msg.channel_id AS repost_cid
@@ -40,9 +34,9 @@ pub async fn star(
             JOIN message_refs AS source_msg ON source_id = source_msg.id
             JOIN message_refs AS repost_msg ON repost_id = repost_msg.id
             WHERE source_msg.message_id = $1
-        "#,
-        msg_id)
+        ", msg_id)
         .fetch_optional(&ctx.data.db_pool).await?;
+
     if let Some(starred_message) = existing_star_entry {
         let starboard_message = {
             ctx.http()
@@ -149,9 +143,9 @@ pub async fn star(
         let user_id = i64::from(ctx.author().id);
 
         sqlx::query!("
-            INSERT INTO starred_messages
-            VALUES ($2, $3, (SELECT id FROM users WHERE uid = $1))
-            ", user_id, source_id, repost_id)
+        INSERT INTO starred_messages
+        VALUES ($2, $3, (SELECT id FROM users WHERE uid = $1), $4)
+        ", user_id, source_id, repost_id, message.content)
             .execute(&ctx.data.db_pool)
             .await?;
     }

@@ -3,7 +3,7 @@ use poise::ChoiceParameter;
 use crate::{prelude::ActOnUser, study::{user_results_mode, ResultsMode}, Context, Error};
 
 /// Set or view study result destination.
-#[poise::command(slash_command, prefix_command, ephemeral = true)]
+#[poise::command(slash_command, prefix_command, ephemeral)]
 pub async fn results(
     ctx: Context<'_>,
     #[description = "Result messages mode"]

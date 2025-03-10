@@ -114,8 +114,8 @@ async fn main() -> Result<(), Error> {
 
     let db_pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&std::env::var("SQLITE_CONNSTR")
-            .expect("Missing SQLITE_CONNSTR environment variable"))
+        .connect(&std::env::var("DATABASE_URL")
+            .expect("Missing DATABASE_URL environment variable"))
         .await?;
 
     let options = poise::FrameworkOptions {

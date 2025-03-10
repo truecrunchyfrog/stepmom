@@ -220,7 +220,8 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
                 .content({
                     let mut b = MessageBuilder::new();
                     b.push_line("## Monthly Pond Challenge");
-                    b.push_line("[insert month name] is over!");
+                    b.push(month_start.month().to_string());
+                    b.push_line(" is over!");
                     b.push_line("That means that we have some frogs to celebrate, interesting data to show, and a new month to look forward to.");
                     b.push_line("Let's hop right into it...");
 
@@ -307,6 +308,9 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
                     b.push(" of study effort this month have received a ");
                     b.push_bold(community_gift.to_string());
                     b.push_line(" that lasts a month.");
+                    b.push("Let's look forward to ");
+                    b.push(month_start.month().next().to_string());
+                    b.push_line(", and try our very bests. Now is your chance. I believe in you.");
 
                     b.push_line("## Chart");
 

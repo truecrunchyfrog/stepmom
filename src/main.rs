@@ -124,7 +124,8 @@ async fn main() -> Result<(), Error> {
             commands::star::star(),
             commands::simulate_study_session::simulate_study_session(),
             commands::results::results(),
-            commands::leaderboard::leaderboard()
+            commands::leaderboard::leaderboard(),
+            commands::session::session()
         ],
 
         prefix_options: poise::PrefixFrameworkOptions {

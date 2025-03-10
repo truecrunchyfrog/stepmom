@@ -23,8 +23,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent, data: &Data) -> Res
         }
         InteractionCreate { interaction } =>
             interaction_handler(ctx, data, interaction).await,
-        GuildMemberAddition { new_member } =>
-        {
+        GuildMemberAddition { new_member } => {
             create_user(&ActOnUser(&data.db_pool, new_member.user.id)).await;
             Ok(())
         }

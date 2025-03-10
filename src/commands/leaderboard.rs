@@ -5,7 +5,7 @@ use crate::{leaderboard::{self, real_leaderboard_start_datetime}, Context, Error
 
 const USERS_PER_PAGE: usize = 10;
 
-/// See this months current standings.
+/// See this month's current standings.
 #[poise::command(slash_command, prefix_command, ephemeral)]
 pub async fn leaderboard(
     ctx: Context<'_>,

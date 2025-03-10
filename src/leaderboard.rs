@@ -84,8 +84,7 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
     let http = ctx.http.clone();
     let channel_id = ChannelId::new(data.config.channels.leaderboard_announcement_channel);
 
-    //Job::new_async("0 0 0 1 * *", move |_, _| {
-    Job::new_async("0 * * * * *", move |_, _| {
+    Job::new_async("0 0 0 1 * *", move |_, _| {
         let db = db.clone();
         let http = http.clone();
 

@@ -7,6 +7,10 @@ mod rewards;
 mod bumping;
 mod scheduling;
 mod charts;
+mod trade_cards;
+mod shop;
+mod coins;
+mod booster;
 
 use core::panic;
 use std::collections::HashMap;
@@ -15,8 +19,12 @@ use dotenv::dotenv;
 use events::event_handler;
 use poise::serenity_prelude::Message;
 use prelude::create_user;
-use prelude::ActOnUser;
 use scheduling::create_scheduler;
+use sqlx::any::AnyConnectOptions;
+use sqlx::AnyConnection;
+use sqlx::Connection;
+use sqlx::Executor;
+use sqlx::SqliteConnection;
 use crate::study::StudyState;
 use log::{error, info};
 use poise::serenity_prelude::futures::lock::Mutex;
@@ -27,7 +35,7 @@ use poise::serenity_prelude as serenity;
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::{sync::Arc, time::Duration};
-use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
+use tokio_cron_scheduler::JobScheduler;
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -62,7 +70,6 @@ pub struct StarCost {
     per_attachment: u64
 }
 
-
 pub struct Data {
     config: Config,
     db_pool: sqlx::SqlitePool,
@@ -71,6 +78,8 @@ pub struct Data {
     last_bump_reminder: Arc<Mutex<Option<Message>>>
 }
 
+type DbConn<'a> = &'a mut SqliteConnection;
+type Result<T> = std::result::Result<T, Error>;
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
@@ -91,7 +100,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             )
             .await.unwrap();
         }
-        poise::FrameworkError::EventHandler { error,    .. } => {
+        poise::FrameworkError::EventHandler { error, .. } => {
             error!("Error in event handler: {:?}", error);
         }
         error => {
@@ -103,12 +112,13 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<()> {
     dotenv().ok();
 
     env_logger::init();
 
-    let config_filename = std::env::var("config").unwrap_or(String::from("config.toml"));
+    let config_filename = std::env::var("config")
+        .unwrap_or(String::from("config.toml"));
 
     let config: Config = toml::from_str(&fs::read_to_string(config_filename)?)?;
 
@@ -125,7 +135,11 @@ async fn main() -> Result<(), Error> {
             commands::simulate_study_session::simulate_study_session(),
             commands::results::results(),
             commands::leaderboard::leaderboard(),
-            commands::session::session()
+            commands::session::session(),
+            commands::pay::pay(),
+
+            commands::trade_cards::trade_cards(),
+            commands::shop::shop()
         ],
 
         prefix_options: poise::PrefixFrameworkOptions {
@@ -172,7 +186,7 @@ async fn main() -> Result<(), Error> {
                         .await?;
                     for member in members {
                         if !member.user.bot {
-                            create_user(&ActOnUser(&db_pool, member.user.id)).await;
+                            create_user(&mut db_pool.acquire().await.unwrap(), member.user.id).await;
                         }
                     }
                 }

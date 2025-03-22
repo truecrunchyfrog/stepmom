@@ -6,22 +6,22 @@ use sqlx::{types::time::{OffsetDateTime, Time}, SqlitePool};
 use time::Date;
 use tokio_cron_scheduler::Job;
 
-use crate::{charts::render_chart_to_attachment, prelude::ActOnUser, rewards::{user_claim_reward, Reward}, Data};
+use crate::{booster::Booster, charts::render_chart_to_attachment, rewards::{user_claim_reward, Reward}, Data, DbConn, DbCtx, Error};
 
 pub fn top_leaderboard_rewards() -> [Vec<Reward>; 3] {
     let expiration = Duration::from_secs(30 * 24 * 60 * 60);
     [
         vec![ // First place
             Reward::Coins(10000),
-            Reward::Booster { multiplier: 800, expiration }
+            Reward::Booster(Booster { multiplier: 800, expiration })
         ],
         vec![ // Second place
             Reward::Coins(4000),
-            Reward::Booster { multiplier: 600, expiration }
+            Reward::Booster(Booster { multiplier: 600, expiration })
         ],
         vec![ // Third place
             Reward::Coins(2000),
-            Reward::Booster { multiplier: 400, expiration }
+            Reward::Booster(Booster { multiplier: 400, expiration })
         ]
     ]
 }
@@ -35,10 +35,10 @@ pub fn real_leaderboard_start_datetime() -> OffsetDateTime {
     )
 }
 
-pub async fn user_place(ctx: &ActOnUser<'_>, after: OffsetDateTime) -> Option<u16> {
-    let uid = ctx.uid();
+pub async fn user_place(conn: DbConn<'_>, uid: UserId, after: OffsetDateTime) -> Result<Option<u16>> {
+    let uid = i64::from(uid);
 
-    sqlx::query!("
+    Ok(sqlx::query!("
     SELECT
         ROW_NUMBER() OVER (ORDER BY SUM(length) DESC) AS place
     FROM users
@@ -48,15 +48,15 @@ pub async fn user_place(ctx: &ActOnUser<'_>, after: OffsetDateTime) -> Option<u1
     GROUP BY users.id
     HAVING users.id IN (SELECT id FROM users WHERE uid = $2)
     ", after, uid)
-        .fetch_optional(ctx.0)
-        .await.unwrap()
-        .map(|r| r.place as u16)
+        .fetch_optional(conn)
+        .await?
+        .map(|r| r.place as u16))
 }
 
-pub async fn fetch_leaderboard(pool: &SqlitePool, after: OffsetDateTime, limit: Option<i16>) -> Vec<(UserId, Duration)> {
+pub async fn fetch_leaderboard(conn: DbConn<'_>, after: OffsetDateTime, limit: Option<i16>) -> Result<Vec<(UserId, Duration)>> {
     let limit = limit.unwrap_or(-1);
 
-    sqlx::query!("
+    Ok(sqlx::query!("
     SELECT
         users.uid AS uid,
         SUM(length) AS study_amount
@@ -69,14 +69,14 @@ pub async fn fetch_leaderboard(pool: &SqlitePool, after: OffsetDateTime, limit: 
     ORDER BY SUM(length) DESC
     LIMIT $2
     ", after, limit)
-        .fetch_all(pool)
-        .await.unwrap()
+        .fetch_all(conn)
+        .await?
         .iter()
         .map(|r| (
                 UserId::new(r.uid as u64),
                 Duration::from_secs(r.study_amount as u64)
         ))
-        .collect()
+        .collect())
 }
 
 pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
@@ -92,7 +92,10 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
             // TODO Ping Newsfeed role
 
             let month_start = real_leaderboard_start_datetime();
-            let leaderboard = fetch_leaderboard(&db, month_start, Some(10)).await;
+            let leaderboard = fetch_leaderboard(
+                &mut db.acquire().await.unwrap(),
+                month_start,
+                Some(10)).await;
 
             let top_with_rewards =
                 leaderboard
@@ -103,7 +106,8 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
             for ((uid, _), rewards) in top_with_rewards.iter() {
                 for reward in rewards {
                     user_claim_reward(
-                        &ActOnUser(&db, *uid),
+                        &mut db.acquire().await.unwrap(),
+                        *uid,
                         *reward,
                         "Monthly challenge reward".to_string()
                     ).await;
@@ -126,14 +130,15 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
                 .collect::<Vec<_>>();
 
             let community_gift =
-                    Reward::Booster {
+                    Reward::Booster(Booster {
                         multiplier: 150,
                         expiration: Duration::from_secs(30 * 24 * 60 * 60)
-                    };
+                    });
 
             for uid in gift_to_users {
                 user_claim_reward(
-                    &ActOnUser(&db, uid),
+                    &mut db.acquire().await.unwrap(),
+                    uid,
                     community_gift,
                     "Monthly Challenge Community Gift".to_string()
                 ).await;

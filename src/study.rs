@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use humantime::format_duration;
-use poise::serenity_prelude::{futures::{future::join_all, lock::Mutex}, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Member, Mentionable, MessageBuilder, User, UserId, VoiceState};
+use poise::serenity_prelude::{futures::{future::join_all, lock::Mutex}, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Mentionable, MessageBuilder, User, UserId, VoiceState};
 use rand::Rng;
 use sqlx::types::time::OffsetDateTime;
 use tokio::time::Instant;
 
-use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::{try_dm_or_in_guild, ActOnUser}, rewards::{user_claim_reward, Reward}, Channels, Config, Data, Error};
+use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::try_dm_or_in_guild, rewards::{user_claim_reward, Reward}, Channels, Config, Data, DbConn, Error};
 
 fn is_study_vc(channels_config: &Channels, channel_id: ChannelId) -> bool {
     !channels_config.slacking_voice_channels.contains(&u64::from(channel_id))
@@ -115,7 +115,7 @@ pub async fn finish_session(
     user_id: UserId,
     state: StudyState,
     alert: bool
-) {
+) -> Result<()> {
     state.sum_video_progress().await;
     state.sum_break_progress().await;
 
@@ -124,30 +124,25 @@ pub async fn finish_session(
 
     let coins = (length.as_secs() / 60)
         * data.config.study_earnings.coins_per_minute;
-    let uid = i64::from(user_id);
-
-    let act_on_user_ctx =
-        &ActOnUser(&data.db_pool, user_id);
 
     let lb_start = real_leaderboard_start_datetime();
 
     let lb_place_before =
-        user_place(act_on_user_ctx, lb_start).await;
+        user_place(&mut data.db_pool.acquire().await?, user_id, lb_start).await;
 
-    let user = ctx.http().get_user(user_id).await.unwrap();
+    let user = ctx.http().get_user(user_id).await?;
 
-    let streak_before = user_streak(act_on_user_ctx).await;
+    let streak_before = user_streak(&mut data.db_pool.acquire().await?, user_id).await;
 
     let session_id = {
         let coins = coins as i64;
-
+        let uid = i64::from(user_id);
         let coin_reward_id = sqlx::query!("
         INSERT INTO coin_transactions (user_id, coins_diff)
         SELECT users.id, $2 FROM users WHERE uid = $1
         ", uid, coins)
             .execute(&data.db_pool)
-            .await
-            .unwrap()
+            .await?
             .last_insert_rowid();
 
         let length = length.as_secs() as i64;
@@ -160,13 +155,12 @@ pub async fn finish_session(
         SELECT users.id, $2, $3, $4, $5 FROM users WHERE uid = $1
         ", uid, coin_reward_id, length, video_length, ended)
             .execute(&data.db_pool)
-            .await
-            .unwrap()
+            .await?
             .last_insert_rowid()
     };
 
     let lb_place_after =
-        user_place(act_on_user_ctx, lb_start).await;
+        user_place(&mut data.db_pool.acquire().await?, user_id, lb_start).await;
 
     let streak_after = user_streak(act_on_user_ctx).await;
 
@@ -316,9 +310,8 @@ fn random_video_reward_time() -> Duration {
     Duration::from_secs(rand::thread_rng().gen_range(1..12) * 30 * 60)
 }
 
-pub async fn user_streak(ctx: &ActOnUser<'_>) -> u16 {
-    let uid = ctx.uid();
-
+pub async fn user_streak(conn: DbConn<'_>, uid: UserId) -> Result<u16> {
+    let uid = i64::from(uid);
     sqlx::query!("
     WITH RECURSIVE session_date_range AS (
         WITH sessions AS (
@@ -336,8 +329,8 @@ pub async fn user_streak(ctx: &ActOnUser<'_>) -> u16 {
         WHERE DATE(date, '-1 day') IN sessions
     ) SELECT COUNT(*) AS streak FROM session_date_range
     ", uid)
-        .fetch_one(ctx.0)
-        .await.unwrap()
+        .fetch_one(conn)
+        .await?
         .streak as u16
 }
 
@@ -386,7 +379,7 @@ async fn result_message(result: StudyResult<'_>, config: &Config) -> CreateMessa
                 b.push(":ladder::arrow_up: Leaderboard climbed: ");
                 b.push_bold(previous_place.to_string());
                 b.push(" → ");
-                b.push_bold(current_place.to_string());
+                b.push_bold_line(current_place.to_string());
             }
             _ => ()
         }
@@ -444,13 +437,13 @@ pub enum ResultsMode {
     Guild = 2
 }
 
-pub async fn user_results_mode(ctx: &ActOnUser<'_>) -> ResultsMode {
-    let uid = ctx.uid();
+pub async fn user_results_mode(conn: DbConn<'_>, uid: UserId) -> ResultsMode {
+    let uid = i64::from(uid);
     match sqlx::query!("
     SELECT mode FROM study_result_preferences
     WHERE user_id IN (SELECT id FROM users WHERE uid = $1)
     ", uid)
-        .fetch_optional(ctx.0)
+        .fetch_optional(conn)
         .await.unwrap()
         .map(|r| r.mode)
         .unwrap_or(1) {

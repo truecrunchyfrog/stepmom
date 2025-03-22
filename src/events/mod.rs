@@ -4,12 +4,12 @@ mod reveal_reward;
 
 use interactions::interaction_handler;
 use log::info;
-use poise::serenity_prelude::{Context, FullEvent::{self, *}, InviteAction};
+use poise::serenity_prelude::{Context, FullEvent::{self, *}};
 use crate::{scheduling::add_scheduler_items, bumping::check_bump, study::voice_state_update, Error};
 
-use crate::{prelude::{create_user, ActOnUser}, Data};
+use crate::{prelude::create_user, Data};
 
-pub async fn event_handler(ctx: &Context, event: &FullEvent, data: &Data) -> Result<(), Error> {
+pub async fn event_handler(ctx: &Context, event: &FullEvent, data: &Data) -> Result<()> {
     info!("Event handler: {:?}", event.snake_case_name());
 
     match event {
@@ -24,7 +24,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent, data: &Data) -> Res
         InteractionCreate { interaction } =>
             interaction_handler(ctx, data, interaction).await,
         GuildMemberAddition { new_member } => {
-            create_user(&ActOnUser(&data.db_pool, new_member.user.id)).await;
+            create_user(&mut data.db_pool.acquire().await?, new_member.user.id).await;
             Ok(())
         }
         VoiceStateUpdate { old, new } =>

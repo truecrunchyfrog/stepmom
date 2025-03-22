@@ -1,10 +1,10 @@
-CREATE TABLE IF NOT EXISTS users
+CREATE TABLE users
 (
   id INTEGER PRIMARY KEY,
   uid INTEGER UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS study_sessions
+CREATE TABLE study_sessions
 (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS study_sessions
   FOREIGN KEY (coin_reward_id) REFERENCES coin_transactions (id) ON DELETE SET NULL
 );
 
-CREATE TABLE IF NOT EXISTS coin_transactions
+CREATE TABLE coin_transactions
 (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
@@ -30,14 +30,14 @@ CREATE TABLE IF NOT EXISTS coin_transactions
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS message_refs
+CREATE TABLE message_refs
 (
   id INTEGER PRIMARY KEY,
   channel_id INTEGER NOT NULL,
   message_id INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS starred_messages
+CREATE TABLE starred_messages
 (
   source_id INTEGER NOT NULL UNIQUE,
   repost_id INTEGER NOT NULL UNIQUE,
@@ -49,15 +49,15 @@ CREATE TABLE IF NOT EXISTS starred_messages
   FOREIGN KEY (starrer_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS leaderboard_optout
+CREATE TABLE leaderboard_optout
 (
   user_id INTEGER NOT NULL UNIQUE,
 
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS msg_sets (id INTEGER PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS msg_set_items
+CREATE TABLE msg_sets (id INTEGER PRIMARY KEY);
+CREATE TABLE msg_set_items
 (
   msg_set_id INTEGER NOT NULL,
   message_ref_id INTEGER NOT NULL,
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS msg_set_items
   FOREIGN KEY (message_ref_id) REFERENCES message_refs (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS guild_sent_dm_messages
+CREATE TABLE guild_sent_dm_messages
 (
   user_id INTEGER NOT NULL,
   msg_set_id INTEGER NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS guild_sent_dm_messages
   FOREIGN KEY (msg_set_id) REFERENCES msg_sets (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS study_result_preferences
+CREATE TABLE study_result_preferences
 (
   user_id INTEGER NOT NULL UNIQUE,
   /*
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS study_result_preferences
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS rewards
+CREATE TABLE rewards
 (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS rewards
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS boosters
+CREATE TABLE boosters
 (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS boosters
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS video_rewards_time_left
+CREATE TABLE video_rewards_time_left
 (
   user_id INTEGER NOT NULL UNIQUE,
   time_left INTEGER NOT NULL,
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS video_rewards_time_left
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS bumps
+CREATE TABLE bumps
 (
   user_id INTEGER,
   timestamp INTEGER NOT NULL DEFAULT(UNIXEPOCH()),

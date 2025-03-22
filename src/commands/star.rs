@@ -1,5 +1,5 @@
-use crate::{prelude::{create_message_ref, take_coins, ActOnUser}, Error, StarCost};
-use poise::{serenity_prelude::{self as serenity, futures::future::join_all, CacheHttp, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, FutureExt, Mentionable, MessageId}, Modal};
+use crate::{prelude::create_message_ref, Error, StarCost};
+use poise::serenity_prelude::{self as serenity, futures::future::join_all, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, Mentionable, MessageId};
 
 use super::ApplicationContext;
 
@@ -71,7 +71,7 @@ pub async fn star(
         }
 
         take_coins(
-            &ActOnUser(&ctx.data.db_pool, ctx.author().id),
+            &UserCtx(&ctx.data.db_pool, ctx.author().id),
             cost as u64,
             "message starring",
             None).await?;

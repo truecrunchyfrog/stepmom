@@ -1,13 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use charming::{component::{Axis, Title}, element::{AreaStyle, AxisType}, series::Line, theme::Theme, Chart, ImageRenderer};
 use chrono::{NaiveDate, Utc};
 use humantime::{format_duration, parse_duration};
 use num_format::{Locale, ToFormattedString};
-use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, CreateAttachment, MessageBuilder, User}, CreateReply};
-use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
+use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, MessageBuilder, User}, CreateReply};
 
-use crate::{charts::render_chart_to_attachment, leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::{user_balance, ActOnUser}, study::user_streak, Context, Error};
+use crate::{charts::render_chart_to_attachment, leaderboard::{real_leaderboard_start_datetime, user_place}, coins::user_balance, study::user_streak, Context, Error};
 
 #[derive(poise::ChoiceParameter)]
 enum Statistic {
@@ -227,7 +226,7 @@ pub async fn stats(
             msg.delete(ctx).await?;
         }
         None => {
-            let act_on_user_ctx = ActOnUser(&ctx.data().db_pool, user.id);
+            let act_on_user_ctx = UserCtx(&ctx.data().db_pool, user.id);
 
             let balance = user_balance(&act_on_user_ctx).await;
             let place = user_place(&act_on_user_ctx, real_leaderboard_start_datetime()).await;

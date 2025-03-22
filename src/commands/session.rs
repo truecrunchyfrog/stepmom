@@ -6,7 +6,7 @@ use tokio::time::Duration;
 
 use crate::{Context, Error};
 
-/// See realtime, current, studying information.
+/// See realtime, studying information.
 #[poise::command(slash_command, prefix_command, ephemeral)]
 pub async fn session(
     ctx: Context<'_>
@@ -27,8 +27,10 @@ pub async fn session(
             b.push_line(format!(
                     "Video streamed for **{}**",
                     format_duration(
-                        *own_state.video_sum.lock().await +
-                        own_state.video_start.lock().await.map_or(Duration::ZERO, |i| i.elapsed())
+                        Duration::from_secs((
+                                *own_state.video_sum.lock().await +
+                                own_state.video_start.lock().await.map_or(Duration::ZERO, |i| i.elapsed())
+                        ).as_secs())
                     ).to_string()
             ));
             b

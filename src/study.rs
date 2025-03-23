@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use humantime::format_duration;
-use poise::serenity_prelude::{futures::{future::join_all, lock::Mutex}, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Mentionable, MessageBuilder, User, UserId, VoiceState};
+use poise::serenity_prelude::{futures::lock::Mutex, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Mentionable, MessageBuilder, User, UserId, VoiceState};
 use rand::Rng;
 use sqlx::{types::time::OffsetDateTime, Acquire};
 use tokio::time::Instant;

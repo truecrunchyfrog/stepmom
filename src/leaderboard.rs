@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use charming::{component::{Axis, Legend, Title}, element::AxisType, series::{Line, Scatter}, theme::Theme, Chart, ImageRenderer};
+use charming::{component::{Axis, Legend, Title}, element::AxisType, series::Line, theme::Theme, Chart, ImageRenderer};
 use poise::serenity_prelude::{ChannelId, Context, CreateMessage, MessageBuilder, UserId};
 use sqlx::types::time::{OffsetDateTime, Time};
 use time::Date;

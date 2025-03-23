@@ -1,5 +1,5 @@
 use poise::serenity_prelude::Context;
-use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
+use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
 
 use crate::{bumping, leaderboard, Data};
 

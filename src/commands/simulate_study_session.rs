@@ -3,7 +3,7 @@ use std::time::Duration;
 use poise::serenity_prelude::User;
 use tokio::time::Instant;
 
-use crate::{study::{finish_session, StudyState}, Context, Error};
+use crate::{study::{finish_session, StudyState}, Context};
 
 /// Simulate a study session on a user.
 #[poise::command(slash_command, prefix_command, required_permissions = "ADMINISTRATOR", ephemeral = true)]
@@ -17,12 +17,12 @@ pub async fn simulate_study_session(
     video_length: Option<String>,
     #[description = "Alert the user with the result"]
     alert: bool
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     let length = humantime::parse_duration(&length)?;
     let video_length = video_length.map(|s| humantime::parse_duration(&s)).transpose()?.unwrap_or(Duration::ZERO);
 
     if video_length > length {
-        return Err(Error::from("Total length must be greater than or equals to the video length."))
+        anyhow::bail!("Total length must be greater than or equals to the video length.")
     }
 
     let study_state = StudyState {

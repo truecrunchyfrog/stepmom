@@ -1,6 +1,6 @@
 use poise::{serenity_prelude::{MessageBuilder, User}, CreateReply};
 
-use crate::{Context, DbCtx, Error};
+use crate::{coins::{add_coins, take_coins}, Context};
 
 /// Pay another user.
 #[poise::command(slash_command, prefix_command, ephemeral)]
@@ -10,16 +10,15 @@ pub async fn pay(
     recipient: User,
     #[description = "Payment amount"]
     amount: u64
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     if amount < 1 {
-        return Err(Error::from("Invalid amount. Be as generous as to give at least 1 coin, please."))
+        anyhow::bail!("Invalid amount. Be as generous as to give at least 1 coin, please.")
     }
 
     let mut tx = ctx.data().db_pool.begin().await?;
-    let db_ctx = DbCtx(&mut tx);
-    db_ctx.take_coins(ctx.author().id, amount, "a payment", None).await?;
-    db_ctx.add_coins(recipient.id, amount).await?;
-    tx.commit()?;
+    take_coins(&mut tx, ctx.author().id, amount, "a payment".to_string(), None).await?;
+    add_coins(&mut tx, recipient.id, amount).await?;
+    tx.commit().await?;
 
     ctx.send(CreateReply::default()
         .content(MessageBuilder::new()

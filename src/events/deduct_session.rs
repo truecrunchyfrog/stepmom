@@ -5,7 +5,7 @@ use log::info;
 use poise::{serenity_prelude::{CacheHttp, ComponentInteraction, Context, EditMessage}, Modal};
 use poise::modal;
 
-use crate::{Data, Error};
+use crate::Data;
 
 #[derive(poise::Modal)]
 #[name = "Session time deduction"]
@@ -26,7 +26,7 @@ struct DeductionModal {
     keep_video_length: Option<String>
 }
 
-pub async fn deduct_session(ctx: &Context, interaction: &ComponentInteraction, data: &Data, session_id: i64) -> Result<(), Error> {
+pub async fn deduct_session(ctx: &Context, interaction: &ComponentInteraction, data: &Data, session_id: i64) -> anyhow::Result<()> {
     info!("Session penalty deduction on session {} for user {}", session_id, interaction.user);
 
     let uid = i64::from(interaction.user.id);
@@ -39,7 +39,7 @@ pub async fn deduct_session(ctx: &Context, interaction: &ComponentInteraction, d
     ", session_id, uid)
         .fetch_optional(&data.db_pool)
         .await?
-        .ok_or(Error::from("Cannot find that study session."))?;
+        .ok_or(anyhow::anyhow!("Cannot find that study session."))?;
 
     let old_length = Duration::from_secs(session_data.length as u64);
     let old_video_length = Duration::from_secs(session_data.video_length as u64);
@@ -54,7 +54,7 @@ pub async fn deduct_session(ctx: &Context, interaction: &ComponentInteraction, d
                 format_duration(Duration::from_secs(session_data.video_length as u64)).to_string().into()
         }),
         Some(Duration::from_secs(5 * 60))
-    ).await?.ok_or(Error::from("Failure retrieving modal data."))?;
+    ).await?.ok_or(anyhow::anyhow!("Failure retrieving modal data."))?;
 
     let new_length =
         parse_duration(&deduction.keep_length.unwrap_or(String::new()))
@@ -68,11 +68,11 @@ pub async fn deduct_session(ctx: &Context, interaction: &ComponentInteraction, d
     if !delete_session &&
         (new_video_length > old_video_length ||
         new_video_length > new_length) {
-        Err(Error::from("New video length can neither be greater than the old video length, or the new total length."))?
+        Err(anyhow::anyhow!("New video length can neither be greater than the old video length, or the new total length."))?
     }
 
     if new_length > old_length {
-        Err(Error::from("New length cannot be greater than the old length."))?
+        Err(anyhow::anyhow!("New length cannot be greater than the old length."))?
     }
 
     let content_prepended_message = if !delete_session {

@@ -1,5 +1,5 @@
-use crate::{prelude::create_message_ref, Error, StarCost};
-use poise::serenity_prelude::{self as serenity, futures::future::join_all, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, Mentionable, MessageId};
+use crate::{coins::take_coins, prelude::create_message_ref, StarCost};
+use poise::{serenity_prelude::{self as serenity, futures::future::join_all, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, Mentionable, MessageId}, Modal};
 
 use super::ApplicationContext;
 
@@ -23,7 +23,7 @@ fn message_starring_cost(star_cost_config: &StarCost, message: &serenity::Messag
 pub async fn star(
     ctx: ApplicationContext<'_>,
     message: serenity::Message
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     let msg_id = i64::from(message.id);
 
     let existing_star_entry = sqlx::query!("
@@ -44,15 +44,12 @@ pub async fn star(
                     ChannelId::new(starred_message.repost_cid as u64),
                     MessageId::new(starred_message.repost_mid as u64))
                 .await
-                .or(Err(Error::from("Already starred, but cannot find message.")))?
+                .or(Err(anyhow::anyhow!("Already starred, but cannot find message.")))?
                 .to_owned()
         };
 
-        return Err(Error::from(
-                format!(
-                    "This message has already been starred: {}",
-                    starboard_message.link()
-                )))
+        anyhow::bail!("This message has already been starred: {}",
+            starboard_message.link())
     }
 
     let starboard_channel = ctx.http().get_channel(
@@ -60,20 +57,23 @@ pub async fn star(
         .guild().unwrap();
 
     if message.channel_id == starboard_channel.id {
-        return Err(Error::from("Messages cannot be starred in this channel."))
+        anyhow::bail!("Messages cannot be starred in this channel.")
     }
 
     let cost = message_starring_cost(&ctx.data.config.star_cost, &message);
 
     if let Some(data) = poise::modal::execute_modal(ctx, Some(StarModal { cost: cost.to_string() }), None).await? {
         if data.cost.parse::<u64>().unwrap_or(0) != cost {
-            return Err(Error::from("Cost did not match, and was probably changed by user. Canceled."))
+            anyhow::bail!("Cost did not match, and was probably changed by user. Canceled.")
         }
 
+        let mut tx = ctx.data.db_pool.begin().await?;
+
         take_coins(
-            &UserCtx(&ctx.data.db_pool, ctx.author().id),
+            &mut tx,
+            ctx.author().id,
             cost as u64,
-            "message starring",
+            "message starring".to_string(),
             None).await?;
 
         let repost = starboard_channel.send_message(ctx.http(), CreateMessage::new()
@@ -89,56 +89,16 @@ pub async fn star(
             message.content
             ))
 
-            /*.embeds(message.embeds.iter().map(|e| {
-                let ce = CreateEmbed::new();
-
-                if let Some(a) = &e.author {
-                    let ca = CreateEmbedAuthor::new(&a.name);
-
-                    if let Some(url) = &a.url { &ca.url(url); }
-                    if let Some(icon_url) = &a.icon_url { &ca.icon_url(icon_url); }
-
-                    ce.author(ca);
-                }
-
-                if let Some(f) = &e.footer {
-                    let cf = CreateEmbedFooter::new(&f.text);
-
-                    if let Some(icon_url) = &f.icon_url { &cf.icon_url(icon_url); }
-
-                    ce.footer(cf);
-                }
-
-                if let Some(description) = &e.description { &ce.description(description); }
-
-                if let Some(color) = &e.colour { &ce.color(*color); }
-
-                if let Some(url) = &e.url { &ce.url(url); }
-
-                if let Some(title) = &e.title { &ce.title(title); }
-
-                if let Some(thumbnail) = &e.thumbnail { &ce.thumbnail(thumbnail.url); }
-
-                if let Some(timestamp) = &e.timestamp { &ce.timestamp(timestamp); }
-
-                for field in &e.fields {
-                    ce.field(&field.name, &field.value, field.inline);
-                }
-
-                if let Some(image) = &e.image { ce.image(image.url); }
-
-                ce
-            }).collect())*/
-
-            .files(join_all(message.attachments.iter().map(|a| {
-                CreateAttachment::url(ctx.http(), &a.url)
-            })).await.into_iter().flatten())
+            .files(join_all(
+                    message.attachments.iter()
+                    .map(|a| CreateAttachment::url(ctx.http(), &a.url))
+            ).await.into_iter().collect::<Result<Vec<_>, _>>()?)
 
             .allowed_mentions(CreateAllowedMentions::new())
         ).await?;
 
-        let source_id = create_message_ref(&ctx.data.db_pool, &message).await;
-        let repost_id = create_message_ref(&ctx.data.db_pool, &repost).await;
+        let source_id = create_message_ref(&mut tx, &message).await?;
+        let repost_id = create_message_ref(&mut tx, &repost).await?;
 
         let user_id = i64::from(ctx.author().id);
 
@@ -146,8 +106,10 @@ pub async fn star(
         INSERT INTO starred_messages
         VALUES ($2, $3, (SELECT id FROM users WHERE uid = $1), $4)
         ", user_id, source_id, repost_id, message.content)
-            .execute(&ctx.data.db_pool)
+            .execute(&mut *tx)
             .await?;
+
+        tx.commit().await?;
     }
 
     Ok(())

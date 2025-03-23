@@ -4,33 +4,34 @@ use crate::{Data, DbConn};
 
 // TODO extract into own modules
 
-pub async fn create_message_ref(conn: DbConn<'_>, message: &serenity::Message) -> Result<i64> {
+pub async fn create_message_ref(conn: DbConn<'_>, message: &serenity::Message) -> anyhow::Result<i64> {
     let cid = i64::from(message.channel_id);
     let mid = i64::from(message.id);
-    sqlx::query!("
+    Ok(sqlx::query!("
             INSERT INTO message_refs (channel_id, message_id)
             VALUES ($1, $2)",
             cid, mid)
         .execute(conn)
         .await?
-        .last_insert_rowid()
+        .last_insert_rowid())
 }
 
-pub async fn create_user(conn: DbConn<'_>, uid: UserId) -> Result<()> {
+pub async fn create_user(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<()> {
     let uid = i64::from(uid);
     sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", uid)
         .execute(conn)
         .await?;
+    Ok(())
 }
 
-pub async fn try_dm_or_in_guild(conn: DbConn<'_>, data: &Data, cache_http: impl CacheHttp, user: &User, builder: CreateMessage) -> Result<Message> {
+pub async fn try_dm_or_in_guild(conn: DbConn<'_>, data: &Data, cache_http: impl CacheHttp, user: &User, builder: CreateMessage) -> anyhow::Result<Message> {
     let dm_message = user.dm(&cache_http, builder.clone()).await;
 
     match dm_message {
-        Ok(sent_dm_msg) => sent_dm_msg,
+        Ok(sent_dm_msg) => Ok(sent_dm_msg),
         Err(_) => {
             let msg_set_id = sqlx::query!("INSERT INTO msg_sets VALUES (NULL)")
-                .execute(conn)
+                .execute(&mut *conn)
                 .await?
                 .last_insert_rowid();
 
@@ -40,14 +41,14 @@ pub async fn try_dm_or_in_guild(conn: DbConn<'_>, data: &Data, cache_http: impl 
             INSERT INTO guild_sent_dm_messages
             VALUES ((SELECT id FROM users WHERE uid = $1), $2)
                 ", uid, msg_set_id)
-                .execute(conn)
+                .execute(&mut *conn)
                 .await?
                 .last_insert_rowid();
 
             let channel = &cache_http.http().get_channel(
                 ChannelId::new(data.config.channels.dm_backup_channel))
                 .await?
-                .guild()?;
+                .guild().unwrap();
 
             let sent_guild_msg = channel
                 .send_message(&cache_http, builder)
@@ -64,16 +65,16 @@ pub async fn try_dm_or_in_guild(conn: DbConn<'_>, data: &Data, cache_http: impl 
             ).await?;
 
             for msg in vec![&sent_guild_msg, &info_msg] {
-                let msg_ref_id = create_message_ref(conn, &msg).await;
+                let msg_ref_id = create_message_ref(&mut *conn, &msg).await?;
                 sqlx::query!("
                 INSERT INTO msg_set_items
                 VALUES ($1, $2)
                 ", msg_set_id, msg_ref_id)
-                    .execute(conn)
+                    .execute(&mut *conn)
                     .await?;
             }
 
-            sent_guild_msg
+            Ok(sent_guild_msg)
         }
     }
 }

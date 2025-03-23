@@ -2,11 +2,11 @@ use log::info;
 use poise::serenity_prelude::{CacheHttp, ChannelId, Context, CreateInteractionResponse, CreateInteractionResponseMessage, Interaction, MessageId, UserId};
 use regex::Regex;
 
-use crate::{events::reveal_reward::reveal_reward, Data, Error};
+use crate::{events::reveal_reward::reveal_reward, Data};
 
 use super::deduct_session::deduct_session;
 
-pub async fn interaction_handler(ctx: &Context, data: &Data, interaction: &Interaction) -> Result<(), Error> {
+pub async fn interaction_handler(ctx: &Context, data: &Data, interaction: &Interaction) -> anyhow::Result<()> {
     match interaction {
         Interaction::Component(component_interaction) => {
             let custom_id = &component_interaction.data.custom_id;

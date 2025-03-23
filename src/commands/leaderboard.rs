@@ -1,7 +1,7 @@
 use humantime::format_duration;
-use poise::{serenity_prelude::{CreateAllowedMentions, CreateMessage, MessageBuilder}, CreateReply};
+use poise::{serenity_prelude::{CreateAllowedMentions, MessageBuilder}, CreateReply};
 
-use crate::{leaderboard::{self, real_leaderboard_start_datetime}, Context, Error};
+use crate::{leaderboard::{self, real_leaderboard_start_datetime}, Context};
 
 const USERS_PER_PAGE: usize = 10;
 
@@ -11,12 +11,12 @@ pub async fn leaderboard(
     ctx: Context<'_>,
     #[description = "Leaderboard page"]
     page: Option<usize>
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     let leaderboard = leaderboard::fetch_leaderboard(
-        &ctx.data().db_pool,
+        &mut ctx.data().db_pool.acquire().await.unwrap(),
         real_leaderboard_start_datetime(),
         None
-    ).await;
+    ).await?;
 
     let default_pos = leaderboard.iter()
         .position(|l| l.0 == ctx.author().id)
@@ -28,9 +28,8 @@ pub async fn leaderboard(
     );
 
     if start_pos >= leaderboard.len() {
-        return Err(Error::from(
-                format!("Out of range! Max pages available: {}.",
-                    (leaderboard.len() - 1) / USERS_PER_PAGE + 1)))
+        anyhow::bail!("Out of range! Max pages available: {}.",
+                    (leaderboard.len() - 1) / USERS_PER_PAGE + 1)
     }
 
     let end_pos = (start_pos + USERS_PER_PAGE).min(leaderboard.len());
@@ -59,7 +58,7 @@ pub async fn leaderboard(
             b.build()
         })
         .allowed_mentions(CreateAllowedMentions::new())
-    ).await.unwrap();
+    ).await?;
 
     Ok(())
 }

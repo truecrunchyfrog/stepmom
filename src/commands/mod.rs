@@ -1,4 +1,4 @@
-use crate::{Data, Error};
+use crate::Data;
 
 pub mod stats;
 pub mod star;
@@ -10,4 +10,4 @@ pub mod pay;
 pub mod trade_cards;
 pub mod shop;
 
-type ApplicationContext<'a> = poise::ApplicationContext<'a, Data, Error>;
+type ApplicationContext<'a> = poise::ApplicationContext<'a, Data, anyhow::Error>;

@@ -6,7 +6,7 @@ use humantime::{format_duration, parse_duration};
 use num_format::{Locale, ToFormattedString};
 use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, MessageBuilder, User}, CreateReply};
 
-use crate::{charts::render_chart_to_attachment, leaderboard::{real_leaderboard_start_datetime, user_place}, coins::user_balance, study::user_streak, Context, Error};
+use crate::{charts::render_chart_to_attachment, leaderboard::{real_leaderboard_start_datetime, user_place}, coins::user_balance, study::user_streak, Context};
 
 #[derive(poise::ChoiceParameter)]
 enum Statistic {
@@ -49,7 +49,7 @@ pub async fn stats(
     #[description = "Period"]
     #[autocomplete = "autocomplete_period"]
     period: Option<String>
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     let user = user.as_ref().unwrap_or_else(|| ctx.author());
 
     match statistic {
@@ -80,7 +80,7 @@ pub async fn stats(
             ) SELECT * FROM date_range
             ", start, end)
                 .fetch_all(&ctx.data().db_pool)
-                .await.unwrap();
+                .await?;
 
             let (title, y_axis_label, series) = match stat {
                 Statistic::Time => {
@@ -107,7 +107,7 @@ pub async fn stats(
                     ORDER BY date
                     ", start, end, uid)
                         .fetch_all(&ctx.data().db_pool)
-                        .await.unwrap();
+                        .await?;
 
                     ("Study time", "hours/day",
                      vec![
@@ -183,7 +183,7 @@ pub async fn stats(
                     ORDER BY date
                     ", start, end, uid)
                         .fetch_all(&ctx.data().db_pool)
-                        .await.unwrap();
+                        .await?;
 
                     ("Balance", "Coins",
                      vec![
@@ -226,11 +226,11 @@ pub async fn stats(
             msg.delete(ctx).await?;
         }
         None => {
-            let act_on_user_ctx = UserCtx(&ctx.data().db_pool, user.id);
+            let conn = &mut ctx.data().db_pool.acquire().await?;
 
-            let balance = user_balance(&act_on_user_ctx).await;
-            let place = user_place(&act_on_user_ctx, real_leaderboard_start_datetime()).await;
-            let streak = user_streak(&act_on_user_ctx).await;
+            let balance = user_balance(conn, user.id).await?;
+            let place = user_place(conn, user.id, real_leaderboard_start_datetime()).await?;
+            let streak = user_streak(conn, user.id).await?;
 
             ctx.send(CreateReply::default()
                 .content(
@@ -256,7 +256,7 @@ pub async fn stats(
 
                     .build()
                 )
-                .allowed_mentions(CreateAllowedMentions::new())).await.unwrap();
+                .allowed_mentions(CreateAllowedMentions::new())).await?;
         }
     }
 

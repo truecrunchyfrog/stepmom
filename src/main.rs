@@ -20,10 +20,6 @@ use events::event_handler;
 use poise::serenity_prelude::Message;
 use prelude::create_user;
 use scheduling::create_scheduler;
-use sqlx::any::AnyConnectOptions;
-use sqlx::AnyConnection;
-use sqlx::Connection;
-use sqlx::Executor;
 use sqlx::SqliteConnection;
 use crate::study::StudyState;
 use log::{error, info};
@@ -79,11 +75,9 @@ pub struct Data {
 }
 
 type DbConn<'a> = &'a mut SqliteConnection;
-type Result<T> = std::result::Result<T, Error>;
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, Data, Error>;
+type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 
-async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
+async fn on_error(error: poise::FrameworkError<'_, Data, anyhow::Error>) {
     match error {
         poise::FrameworkError::Setup { error, .. } => panic!("Failed to start bot: {:?}", error),
         poise::FrameworkError::Command { error, ctx, .. } => {
@@ -112,7 +106,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
     env_logger::init();

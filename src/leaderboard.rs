@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use charming::{component::{Axis, Legend, Title}, element::AxisType, series::{Line, Scatter}, theme::Theme, Chart, ImageRenderer};
 use poise::serenity_prelude::{ChannelId, Context, CreateMessage, MessageBuilder, UserId};
-use sqlx::{types::time::{OffsetDateTime, Time}, SqlitePool};
+use sqlx::types::time::{OffsetDateTime, Time};
 use time::Date;
 use tokio_cron_scheduler::Job;
 
-use crate::{booster::Booster, charts::render_chart_to_attachment, rewards::{user_claim_reward, Reward}, Data, DbConn, DbCtx, Error};
+use crate::{booster::Booster, charts::render_chart_to_attachment, rewards::{user_claim_reward, Reward}, Data, DbConn};
 
 pub fn top_leaderboard_rewards() -> [Vec<Reward>; 3] {
     let expiration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -35,7 +35,7 @@ pub fn real_leaderboard_start_datetime() -> OffsetDateTime {
     )
 }
 
-pub async fn user_place(conn: DbConn<'_>, uid: UserId, after: OffsetDateTime) -> Result<Option<u16>> {
+pub async fn user_place(conn: DbConn<'_>, uid: UserId, after: OffsetDateTime) -> anyhow::Result<Option<u16>> {
     let uid = i64::from(uid);
 
     Ok(sqlx::query!("
@@ -53,7 +53,7 @@ pub async fn user_place(conn: DbConn<'_>, uid: UserId, after: OffsetDateTime) ->
         .map(|r| r.place as u16))
 }
 
-pub async fn fetch_leaderboard(conn: DbConn<'_>, after: OffsetDateTime, limit: Option<i16>) -> Result<Vec<(UserId, Duration)>> {
+pub async fn fetch_leaderboard(conn: DbConn<'_>, after: OffsetDateTime, limit: Option<i16>) -> anyhow::Result<Vec<(UserId, Duration)>> {
     let limit = limit.unwrap_or(-1);
 
     Ok(sqlx::query!("
@@ -95,7 +95,7 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
             let leaderboard = fetch_leaderboard(
                 &mut db.acquire().await.unwrap(),
                 month_start,
-                Some(10)).await;
+                Some(10)).await.unwrap();
 
             let top_with_rewards =
                 leaderboard

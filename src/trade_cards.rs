@@ -4,8 +4,6 @@ use image::{DynamicImage, GenericImageView, ImageReader, Pixel, Rgb, RgbaImage};
 use sqlx::SqlitePool;
 use rand::prelude::*;
 
-use crate::Error;
-
 pub struct TradeCard {
     id: i64,
     name: String,
@@ -18,7 +16,7 @@ pub struct TradeCard {
 }
 
 impl TradeCard {
-    pub fn create_card_image(&self) -> Result<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>, Error> {
+    pub fn create_card_image(&self) -> anyhow::Result<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
         Ok(add_border_to_image(
             ImageReader::open(Path::new("trade-card-images").join(self.id.to_string()))?.decode()?,
             Rgb::<u8>([
@@ -30,7 +28,7 @@ impl TradeCard {
     }
 }
 
-pub async fn fetch_cards(pool: &SqlitePool) -> Result<Vec<TradeCard>, Error> {
+pub async fn fetch_cards(pool: &SqlitePool) -> anyhow::Result<Vec<TradeCard>> {
     Ok(sqlx::query_as!(TradeCard, r#"
     SELECT c.id, c.name, c.quote, c.author_id, r.weight, r.color, r.emote_id, r.sell_coins
     FROM trade_cards c
@@ -41,7 +39,7 @@ pub async fn fetch_cards(pool: &SqlitePool) -> Result<Vec<TradeCard>, Error> {
         .await?)
 }
 
-pub fn pick_random_card<'a>(cards: &'a Vec<TradeCard>) -> Result<&'a TradeCard, Error> {
+pub fn pick_random_card<'a>(cards: &'a Vec<TradeCard>) -> anyhow::Result<&'a TradeCard> {
     Ok(cards.choose_weighted(&mut thread_rng(), |card| card.weight)?)
 }
 

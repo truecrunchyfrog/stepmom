@@ -4,13 +4,11 @@ use humantime::format_duration;
 use poise::{serenity_prelude::{CreateAllowedMentions, MessageBuilder}, CreateReply};
 use tokio::time::Duration;
 
-use crate::{Context, Error};
+use crate::Context;
 
-/// See realtime, studying information.
+/// See realtime studying information.
 #[poise::command(slash_command, prefix_command, ephemeral)]
-pub async fn session(
-    ctx: Context<'_>
-) -> Result<(), Error> {
+pub async fn session(ctx: Context<'_>) -> anyhow::Result<()> {
     let study_states = ctx.data().study_states.lock().await;
 
     fn instant_to_timestamp(i: tokio::time::Instant) -> u64 {

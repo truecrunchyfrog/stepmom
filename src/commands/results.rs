@@ -1,6 +1,6 @@
 use poise::ChoiceParameter;
 
-use crate::{study::{user_results_mode, ResultsMode}, Context, Error};
+use crate::{study::{user_results_mode, ResultsMode}, Context};
 
 /// Set or view study result destination.
 #[poise::command(slash_command, prefix_command, ephemeral)]
@@ -8,7 +8,7 @@ pub async fn results(
     ctx: Context<'_>,
     #[description = "Result messages mode"]
     mode: Option<ResultsMode>
-) -> Result<()> {
+) -> anyhow::Result<()> {
     match mode {
         Some(m) => {
             let uid = i64::from(ctx.author().id);
@@ -22,7 +22,7 @@ pub async fn results(
             ctx.reply(format!("Changed result location to: **{}**", m.name())).await?;
         }
         None => {
-            let mode = user_results_mode(&mut ctx.data().db_pool.acquire().await?).await;
+            let mode = user_results_mode(&mut ctx.data().db_pool.acquire().await.unwrap(), ctx.author().id).await?;
             ctx.reply(format!("Study results location: **{}**", mode.name())).await?;
         }
     }

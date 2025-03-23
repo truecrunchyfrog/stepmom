@@ -4,9 +4,7 @@ use charming::{Chart, ImageRenderer};
 use poise::serenity_prelude::CreateAttachment;
 use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
 
-use crate::Error;
-
-pub fn render_chart_to_bytes(renderer: &mut ImageRenderer, chart: &Chart) -> Result<Vec<u8>, Error> {
+pub fn render_chart_to_bytes(renderer: &mut ImageRenderer, chart: &Chart) -> anyhow::Result<Vec<u8>> {
     let svg_string = renderer.render(chart)?;
 
     let mut font_db = resvg::usvg::fontdb::Database::new();
@@ -25,6 +23,6 @@ pub fn render_chart_to_bytes(renderer: &mut ImageRenderer, chart: &Chart) -> Res
     Ok(pixmap.encode_png()?)
 }
 
-pub fn render_chart_to_attachment(renderer: &mut ImageRenderer, chart: &Chart) -> Result<CreateAttachment, Error> {
+pub fn render_chart_to_attachment(renderer: &mut ImageRenderer, chart: &Chart) -> anyhow::Result<CreateAttachment> {
     Ok(CreateAttachment::bytes(render_chart_to_bytes(renderer, chart)?, "chart.png"))
 }

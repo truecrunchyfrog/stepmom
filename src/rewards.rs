@@ -46,7 +46,7 @@ impl ToString for Reward {
     }
 }
 
-pub async fn user_claim_reward(conn: DbConn<'_>, uid: UserId, reward: Reward, reason: String) -> Result<i64> {
+pub async fn user_claim_reward(conn: DbConn<'_>, uid: UserId, reward: Reward, reason: String) -> anyhow::Result<i64> {
     match reward {
         Reward::Coins(amount) => {
             add_coins(conn, uid, amount).await;
@@ -59,7 +59,7 @@ pub async fn user_claim_reward(conn: DbConn<'_>, uid: UserId, reward: Reward, re
             INSERT INTO boosters
             VALUES (NULL, (SELECT id FROM users WHERE uid = $1), $2, UNIXEPOCH() + $3)
             ", uid, multiplier, expiration)
-                .execute(conn)
+                .execute(&mut *conn)
                 .await?;
         }
         Reward::Role(role_id) => {
@@ -75,7 +75,7 @@ pub async fn user_claim_reward(conn: DbConn<'_>, uid: UserId, reward: Reward, re
     INSERT INTO rewards (user_id, description, reason)
     VALUES ((SELECT id FROM users WHERE uid = $1), $2, $3)
     ", uid, description, reason)
-        .execute(conn)
+        .execute(&mut *conn)
         .await?
         .last_insert_rowid())
 }

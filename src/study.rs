@@ -3,10 +3,10 @@ use std::time::Duration;
 use humantime::format_duration;
 use poise::serenity_prelude::{futures::{future::join_all, lock::Mutex}, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Mentionable, MessageBuilder, User, UserId, VoiceState};
 use rand::Rng;
-use sqlx::types::time::OffsetDateTime;
+use sqlx::{types::time::OffsetDateTime, Acquire};
 use tokio::time::Instant;
 
-use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::try_dm_or_in_guild, rewards::{user_claim_reward, Reward}, Channels, Config, Data, DbConn, Error};
+use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::try_dm_or_in_guild, rewards::{user_claim_reward, Reward}, Channels, Config, Data, DbConn};
 
 fn is_study_vc(channels_config: &Channels, channel_id: ChannelId) -> bool {
     !channels_config.slacking_voice_channels.contains(&u64::from(channel_id))
@@ -71,7 +71,7 @@ impl StudyState {
     }
 }
 
-pub async fn voice_state_update(ctx: &Context, data: &Data, old: Option<&VoiceState>, new: &VoiceState) -> Result<(), Error> {
+pub async fn voice_state_update(ctx: &Context, data: &Data, old: Option<&VoiceState>, new: &VoiceState) -> anyhow::Result<()> {
     let study_before = old
         .map(|vs| is_voice_state_studying(&data.config.channels, &vs))
         .unwrap_or(false);
@@ -79,7 +79,7 @@ pub async fn voice_state_update(ctx: &Context, data: &Data, old: Option<&VoiceSt
 
     match (study_before, study_now) {
         (false, true) => begin_studying(ctx, data, new.user_id).await,
-        (true, false) => end_studying(ctx, data, new.user_id).await,
+        (true, false) => end_studying(ctx, data, new.user_id).await?,
         _ => ()
     }
 
@@ -102,11 +102,12 @@ async fn begin_studying(ctx: &Context, data: &Data, user_id: UserId) {
     });
 }
 
-async fn end_studying(ctx: &Context, data: &Data, user_id: UserId) {
+async fn end_studying(ctx: &Context, data: &Data, user_id: UserId) -> anyhow::Result<()> {
     let mut study_states = data.study_states.lock().await;
 
-    let Some(state) = study_states.remove(&user_id) else { return };
-    finish_session(ctx, data, user_id, state, true).await;
+    let Some(state) = study_states.remove(&user_id) else { anyhow::bail!("Cannot stop studying if not studying.") };
+    finish_session(ctx, data, user_id, state, true).await?;
+    Ok(())
 }
 
 pub async fn finish_session(
@@ -115,7 +116,7 @@ pub async fn finish_session(
     user_id: UserId,
     state: StudyState,
     alert: bool
-) -> Result<()> {
+) -> anyhow::Result<()> {
     state.sum_video_progress().await;
     state.sum_break_progress().await;
 
@@ -128,15 +129,14 @@ pub async fn finish_session(
     let lb_start = real_leaderboard_start_datetime();
 
     let lb_place_before =
-        user_place(&mut data.db_pool.acquire().await?, user_id, lb_start).await;
+        user_place(&mut data.db_pool.acquire().await.unwrap(), user_id, lb_start).await?;
 
-    let user = ctx.http().get_user(user_id).await?;
+    let streak_before = user_streak(&mut data.db_pool.acquire().await.unwrap(), user_id).await?;
 
-    let streak_before = user_streak(&mut data.db_pool.acquire().await?, user_id).await;
+    let uid = i64::from(user_id);
 
     let session_id = {
         let coins = coins as i64;
-        let uid = i64::from(user_id);
         let coin_reward_id = sqlx::query!("
         INSERT INTO coin_transactions (user_id, coins_diff)
         SELECT users.id, $2 FROM users WHERE uid = $1
@@ -160,9 +160,9 @@ pub async fn finish_session(
     };
 
     let lb_place_after =
-        user_place(&mut data.db_pool.acquire().await?, user_id, lb_start).await;
+        user_place(&mut data.db_pool.acquire().await.unwrap(), user_id, lb_start).await?;
 
-    let streak_after = user_streak(act_on_user_ctx).await;
+    let streak_after = user_streak(&mut data.db_pool.acquire().await.unwrap(), user_id).await?;
 
     let mut rewards = Vec::new();
 
@@ -177,7 +177,7 @@ pub async fn finish_session(
     VALUES ((SELECT id FROM users WHERE uid = $1), $2)
     ", uid, default_reward_time)
         .execute(&data.db_pool)
-        .await.unwrap();
+        .await?;
 
     let mut depositable_video_length = video_length;
 
@@ -187,7 +187,7 @@ pub async fn finish_session(
         WHERE user_id IN (SELECT id FROM users WHERE uid = $1)
         ", uid)
             .fetch_one(&data.db_pool)
-            .await.unwrap()
+            .await?
             .time_left as u64);
 
         match video_time_left
@@ -202,7 +202,7 @@ pub async fn finish_session(
                 WHERE user_id IN (SELECT id FROM users WHERE uid = $1)
                 ", uid, new_time_left)
                     .execute(&data.db_pool)
-                    .await.unwrap();
+                    .await?;
             }
             // Overflow - replace time and continue.
             None =>
@@ -217,7 +217,7 @@ pub async fn finish_session(
                 WHERE user_id IN (SELECT id FROM users WHERE uid = $1)
                 ", uid, new_time)
                     .execute(&data.db_pool)
-                    .await.unwrap();
+                    .await?;
             }
         }
 
@@ -227,13 +227,24 @@ pub async fn finish_session(
             .unwrap_or(Duration::ZERO);
     }
 
-    let claimed_rewards = join_all(rewards.iter().map(|reason| {
-        user_claim_reward(
-            act_on_user_ctx,
-            Reward::random(),
-            reason.to_string())
-            .map(|u| (*reason, u))
-    }).collect::<Vec<_>>()).await;
+    let claimed_rewards = {
+        let mut tx = data.db_pool.begin().await?;
+        let mut claimed_rewards = Vec::new();
+
+        for reason in rewards {
+            claimed_rewards.push(
+                user_claim_reward(
+                    &mut tx,
+                    user_id,
+                    Reward::random(),
+                    reason.to_string())
+                .map(|reward_id_res| reward_id_res.map(|reward_id| (reason, reward_id)))
+                .await?
+            );
+        }
+
+        claimed_rewards
+    };
 
     if alert {
         let now = OffsetDateTime::now_utc();
@@ -247,10 +258,11 @@ pub async fn finish_session(
             WHERE user_id IN (SELECT id FROM users WHERE uid = $1)
             ", uid)
                 .fetch_one(&data.db_pool)
-                .await.unwrap()
+                .await?
                 .time_left as u64).into()
         } else { None };
 
+        let user = ctx.http().get_user(user_id).await?;
         messages.push(result_message(StudyResult {
             user: &user,
             session_id,
@@ -281,38 +293,40 @@ pub async fn finish_session(
                     .style(ButtonStyle::Success))
         }));
 
-        match user_results_mode(act_on_user_ctx).await {
+        match user_results_mode(&mut data.db_pool.acquire().await.unwrap(), user_id).await? {
             ResultsMode::Off => (),
             ResultsMode::Dm => {
                 for msg in messages {
-                    try_dm_or_in_guild(ctx, data, ctx.http(), &user, msg).await;
+                    try_dm_or_in_guild(&mut data.db_pool.acquire().await.unwrap(), data, ctx.http(), &user, msg).await?;
                 }
-            },
+            }
             ResultsMode::Guild => {
                 let channel = &ctx.http().get_channel(
                     ChannelId::new(data.config.channels.dm_backup_channel))
-                    .await.unwrap()
+                    .await?
                     .guild().unwrap();
 
                 for msg in messages {
                     let guild_msg = channel
                         .send_message(ctx.http(), msg)
-                        .await.unwrap();
+                        .await?;
 
-                    guild_msg.reply(ctx.http(), user.mention().to_string()).await.unwrap();
+                    guild_msg.reply(ctx.http(), user.mention().to_string()).await?;
                 }
             }
         }
     }
+
+    Ok(())
 }
 
 fn random_video_reward_time() -> Duration {
     Duration::from_secs(rand::thread_rng().gen_range(1..12) * 30 * 60)
 }
 
-pub async fn user_streak(conn: DbConn<'_>, uid: UserId) -> Result<u16> {
+pub async fn user_streak(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<u16> {
     let uid = i64::from(uid);
-    sqlx::query!("
+    Ok(sqlx::query!("
     WITH RECURSIVE session_date_range AS (
         WITH sessions AS (
             SELECT DISTINCT DATE(ended) AS date
@@ -331,7 +345,7 @@ pub async fn user_streak(conn: DbConn<'_>, uid: UserId) -> Result<u16> {
     ", uid)
         .fetch_one(conn)
         .await?
-        .streak as u16
+        .streak as u16)
 }
 
 async fn result_message(result: StudyResult<'_>, config: &Config) -> CreateMessage {
@@ -437,19 +451,19 @@ pub enum ResultsMode {
     Guild = 2
 }
 
-pub async fn user_results_mode(conn: DbConn<'_>, uid: UserId) -> ResultsMode {
+pub async fn user_results_mode(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<ResultsMode> {
     let uid = i64::from(uid);
-    match sqlx::query!("
+    Ok(match sqlx::query!("
     SELECT mode FROM study_result_preferences
     WHERE user_id IN (SELECT id FROM users WHERE uid = $1)
     ", uid)
         .fetch_optional(conn)
-        .await.unwrap()
+        .await?
         .map(|r| r.mode)
         .unwrap_or(1) {
         0 => ResultsMode::Off,
         1 => ResultsMode::Dm,
         2 => ResultsMode::Guild,
         _ => unreachable!()
-    }
+    })
 }

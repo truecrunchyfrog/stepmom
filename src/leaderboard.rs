@@ -6,22 +6,22 @@ use sqlx::types::time::{OffsetDateTime, Time};
 use time::Date;
 use tokio_cron_scheduler::Job;
 
-use crate::{booster::Booster, charts::render_chart_to_attachment, rewards::{user_claim_reward, Reward}, Data, DbConn};
+use crate::{booster::Booster, charts::render_chart_to_attachment, product::Product, Data, DbConn};
 
-pub fn top_leaderboard_rewards() -> [Vec<Reward>; 3] {
+pub fn top_leaderboard_rewards() -> [Vec<Product>; 3] {
     let expiration = Duration::from_secs(30 * 24 * 60 * 60);
     [
         vec![ // First place
-            Reward::Coins(10000),
-            Reward::Booster(Booster { multiplier: 800, expiration })
+            Product::Coins(10000),
+            Product::Booster(Booster { multiplier: 800, expiration })
         ],
         vec![ // Second place
-            Reward::Coins(4000),
-            Reward::Booster(Booster { multiplier: 600, expiration })
+            Product::Coins(4000),
+            Product::Booster(Booster { multiplier: 600, expiration })
         ],
         vec![ // Third place
-            Reward::Coins(2000),
-            Reward::Booster(Booster { multiplier: 400, expiration })
+            Product::Coins(2000),
+            Product::Booster(Booster { multiplier: 400, expiration })
         ]
     ]
 }
@@ -30,7 +30,7 @@ pub fn real_leaderboard_start_datetime() -> OffsetDateTime {
     let today = OffsetDateTime::now_utc().date();
 
     OffsetDateTime::new_utc(
-        Date::from_calendar_date(today.year(), today.month(), 1).unwrap(),
+        Date::from_calendar_date(today.year(), today.month(), 1).expect("Should be able to create OffsetDateTime from calendar date."),
         Time::MIDNIGHT
     )
 }
@@ -82,7 +82,7 @@ pub async fn fetch_leaderboard(conn: DbConn<'_>, after: OffsetDateTime, limit: O
 pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
     let db = data.db_pool.clone();
     let http = ctx.http.clone();
-    let channel_id = ChannelId::new(data.config.channels.leaderboard_announcement_channel);
+    let channel_id = data.config.channels.leaderboard_announcement;
 
     Job::new_async("0 0 0 1 * *", move |_, _| {
         let db = db.clone();
@@ -103,14 +103,16 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
                 .zip(top_leaderboard_rewards())
                 .collect::<Vec<_>>();
 
+            let mut tx = db.begin().await.expect("Cannot begin transaction.");
+
             for ((uid, _), rewards) in top_with_rewards.iter() {
                 for reward in rewards {
-                    user_claim_reward(
-                        &mut db.acquire().await.unwrap(),
+                    reward.register_received_reward(
+                        &mut tx,
                         *uid,
-                        *reward,
-                        "Monthly challenge reward".to_string()
-                    ).await;
+                        "Monthly challenge reward".to_string());
+
+                    reward.give_to_member(&mut tx, ctx.http(), *uid).await.expect("Cannot give reward to user.");
                 }
             }
 
@@ -141,7 +143,7 @@ pub fn leaderboard_new_month_job(ctx: &Context, data: &Data) -> Job {
                     uid,
                     community_gift,
                     "Monthly Challenge Community Gift".to_string()
-                ).await;
+                ).await.unwrap();
             }
 
             // TODO this is not ideal, very hacky

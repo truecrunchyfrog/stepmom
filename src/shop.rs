@@ -1,14 +1,11 @@
-use poise::serenity_prelude::Role;
+use serde::Deserialize;
 
-use crate::booster::Booster;
+use crate::product::Product;
 
-pub struct ShopProduct {
-    cost: u64,
-    item: ProductItem
-}
-
-pub enum ProductItem {
-    Booster(Booster),
-    Role(Role, String),
-    // ChartColor
+#[derive(Deserialize)]
+pub struct ShopItem
+{
+    pub description: String,
+    pub cost: u64,
+    pub product: Product
 }

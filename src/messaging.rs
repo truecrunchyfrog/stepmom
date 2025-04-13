@@ -1,10 +1,8 @@
-use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, CreateButton, CreateMessage, Mentionable, Message, User, UserId};
+use poise::serenity_prelude::{ButtonStyle, CacheHttp, ChannelId, CreateButton, CreateMessage, Mentionable, Message, User};
 
 use crate::{Data, DbConn};
 
-// TODO extract into own modules
-
-pub async fn create_message_ref(conn: DbConn<'_>, message: &serenity::Message) -> anyhow::Result<i64> {
+pub async fn create_message_ref(conn: DbConn<'_>, message: &Message) -> anyhow::Result<i64> {
     let cid = i64::from(message.channel_id);
     let mid = i64::from(message.id);
     Ok(sqlx::query!("
@@ -14,14 +12,6 @@ pub async fn create_message_ref(conn: DbConn<'_>, message: &serenity::Message) -
         .execute(conn)
         .await?
         .last_insert_rowid())
-}
-
-pub async fn create_user(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<()> {
-    let uid = i64::from(uid);
-    sqlx::query!("INSERT OR IGNORE INTO users (uid) VALUES ($1)", uid)
-        .execute(conn)
-        .await?;
-    Ok(())
 }
 
 pub async fn try_dm_or_in_guild(conn: DbConn<'_>, data: &Data, cache_http: impl CacheHttp, user: &User, builder: CreateMessage) -> anyhow::Result<Message> {
@@ -45,10 +35,7 @@ pub async fn try_dm_or_in_guild(conn: DbConn<'_>, data: &Data, cache_http: impl 
                 .await?
                 .last_insert_rowid();
 
-            let channel = &cache_http.http().get_channel(
-                ChannelId::new(data.config.channels.dm_backup_channel))
-                .await?
-                .guild().unwrap();
+            let channel = data.config.channels.dm_backup;
 
             let sent_guild_msg = channel
                 .send_message(&cache_http, builder)
@@ -59,7 +46,7 @@ pub async fn try_dm_or_in_guild(conn: DbConn<'_>, data: &Data, cache_http: impl 
                 .button(
                     CreateButton::new("delete_guild_dm")
                     .label("Delete")
-                    .style(serenity::ButtonStyle::Danger)
+                    .style(ButtonStyle::Danger)
                 )
                 .reference_message(&sent_guild_msg)
             ).await?;

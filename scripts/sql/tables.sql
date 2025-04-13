@@ -158,3 +158,12 @@ CREATE TABLE trade_cards
   FOREIGN KEY (rarity_id) REFERENCES trade_card_rarities (id),
   FOREIGN KEY (author_id) REFERENCES trade_card_authors (id)
 );
+
+CREATE TABLE owned_chart_themes
+(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);

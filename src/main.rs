@@ -1,4 +1,3 @@
-mod prelude;
 mod commands;
 mod events;
 mod leaderboard;
@@ -11,14 +10,20 @@ mod trade_cards;
 mod shop;
 mod coins;
 mod booster;
+mod messaging;
+mod users;
+mod product;
 
 use core::panic;
 use std::collections::HashMap;
 use std::fs;
+use bumping::BumpingConfig;
 use dotenv::dotenv;
 use events::event_handler;
+use poise::serenity_prelude::ChannelId;
 use poise::serenity_prelude::Message;
-use prelude::create_user;
+use shop::ShopItem;
+use users::create_user;
 use scheduling::create_scheduler;
 use sqlx::SqliteConnection;
 use crate::study::StudyState;
@@ -35,32 +40,32 @@ use tokio_cron_scheduler::JobScheduler;
 
 #[derive(Deserialize)]
 pub struct Config {
-    study_earnings: StudyEarnings,
-    channels: Channels,
-    star_cost: StarCost,
+    study_earnings: StudyEarningsConfig,
+    channels: ChannelConfig,
+    star_cost: StarringConfig,
+    shop: Vec<ShopItem>,
+    bumping: BumpingConfig,
 
-    results_command_id: u64,
-    bump_reminder_delay: u64,
-    bump_bot_id: u64,
-    bump_command_id: u64
+    results_command_id: u64
 }
 
 #[derive(Deserialize)]
-pub struct StudyEarnings {
+pub struct StudyEarningsConfig {
     coins_per_minute: u64
 }
 
 #[derive(Deserialize)]
-pub struct Channels {
-    bump_reminder_channel: u64,
-    dm_backup_channel: u64,
-    starboard_channel: u64,
-    slacking_voice_channels: Vec<u64>,
-    leaderboard_announcement_channel: u64
+pub struct ChannelConfig {
+    bump_reminder: ChannelId,
+    dm_backup: ChannelId,
+    starboard: ChannelId,
+    leaderboard_announcement: ChannelId,
+
+    slacking_rooms: Vec<ChannelId>
 }
 
 #[derive(Deserialize)]
-pub struct StarCost {
+pub struct StarringConfig {
     base: u64,
     per_character: f64,
     per_attachment: u64
@@ -131,7 +136,6 @@ async fn main() -> anyhow::Result<()> {
             commands::leaderboard::leaderboard(),
             commands::session::session(),
             commands::pay::pay(),
-
             commands::trade_cards::trade_cards(),
             commands::shop::shop()
         ],
@@ -178,11 +182,13 @@ async fn main() -> anyhow::Result<()> {
                     let members = ctx.http()
                         .get_guild_members(guild.id, None, None)
                         .await?;
+                    let mut tx = db_pool.begin().await?;
                     for member in members {
                         if !member.user.bot {
-                            create_user(&mut db_pool.acquire().await.unwrap(), member.user.id).await;
+                            create_user(&mut tx, member.user.id).await?;
                         }
                     }
+                    tx.commit().await?;
                 }
 
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;

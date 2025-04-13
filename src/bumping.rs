@@ -1,24 +1,42 @@
 use std::time::Duration;
 
 use poise::serenity_prelude::{CacheHttp, ChannelId, Context, CreateMessage, EmbedMessageBuilding, Message, MessageBuilder, UserId};
+use serde::Deserialize;
 use tokio_cron_scheduler::Job;
 
 use crate::Data;
 
-pub async fn check_bump(ctx: &Context, message: &Message, data: &Data) {
-    if !(message.author.bot && message.author.id == UserId::new(data.config.bump_bot_id)) {
-        return
+#[derive(Deserialize)]
+pub struct BumpingConfig {
+    reminder_delay: Duration,
+    bot_id: UserId,
+    command_id: u64
+}
+
+fn is_bump_response(message: &Message, bumping_config: &BumpingConfig) -> bool {
+    message.author.bot &&
+        message.author.id == bumping_config.bot_id &&
+        message.referenced_message.is_some()
+}
+
+pub async fn check_bump(ctx: &Context, message: &Message, data: &Data) -> anyhow::Result<bool> {
+    if !is_bump_response(message, &data.config.bumping) {
+        return Ok(false)
     }
 
-    let replied_to = message.referenced_message.clone().unwrap();
-    let bumper = replied_to.author;
+    let bump_command_message =
+        message.referenced_message.clone().expect("Bump message should reference other message.");
+    let bumper = bump_command_message.author;
 
-    message.delete(&ctx.http).await.unwrap();
-    if let Some(message) = data.last_bump_reminder.lock().await.as_ref() {
-        message.delete(&ctx.http).await.unwrap();
+    // Delete the bump message.
+    message.delete(&ctx.http).await?;
+
+    // Delete last reminder.
+    if let Some(last_bump_reminder) = data.last_bump_reminder.lock().await.as_ref() {
+        last_bump_reminder.delete(&ctx.http).await?;
     }
 
-    data.scheduler.add(bump_reminder_job(ctx, data)).await.unwrap();
+    data.scheduler.add(bump_reminder_job(ctx, data)?).await?;
 
     let uid = i64::from(bumper.id);
     sqlx::query!("
@@ -26,7 +44,7 @@ pub async fn check_bump(ctx: &Context, message: &Message, data: &Data) {
     VALUES ($1, NULL)
     ", uid)
         .execute(&data.db_pool)
-        .await.unwrap();
+        .await?;
 
     ctx.http().send_message(
         message.channel_id,
@@ -34,25 +52,24 @@ pub async fn check_bump(ctx: &Context, message: &Message, data: &Data) {
         &CreateMessage::new()
         .content(MessageBuilder::new()
             .push(":face_holding_back_tears: ")
-            .push_named_link(
-                "THANK YOU",
-                "https://cataas.com/cat/gif.gif"
-            )
+            .push_named_link("THANK YOU", "https://cataas.com/cat/gif.gif")
             .push(" for your service, ")
             .mention(&bumper)
             .push_line("!")
             .build()
         )
-    ).await.unwrap();
+    ).await?;
+
+    Ok(true)
 }
 
-pub fn bump_reminder_job(ctx: &Context, data: &Data) -> Job {
+pub fn bump_reminder_job(ctx: &Context, data: &Data) -> anyhow::Result<Job> {
     let http = ctx.http.clone();
-    let channel_id = ChannelId::new(data.config.channels.bump_reminder_channel);
-    let bump_command_id = data.config.bump_command_id;
+    let channel_id = data.config.channels.bump_reminder;
+    let bump_command_id = data.config.bumping.command_id;
     let last_bump_reminder = data.last_bump_reminder.clone();
 
-    Job::new_one_shot_async(Duration::from_secs(data.config.bump_reminder_delay), move |_, _| {
+    Ok(Job::new_one_shot_async(data.config.bumping.reminder_delay, move |_, _| {
         let http = http.clone();
         let last_bump_reminder = last_bump_reminder.clone();
 
@@ -65,9 +82,9 @@ pub fn bump_reminder_job(ctx: &Context, data: &Data) -> Job {
                         "-# :beaver: Hey, listen! Help the pond grow:\n## </bump:{}>",
                         bump_command_id
                 ))
-            ).await.unwrap();
+            ).await.expect("Cannot send bump reminder message.");
 
             *last_bump_reminder.lock().await = Some(reminder_msg);
         })
-    }).unwrap()
+    })?)
 }

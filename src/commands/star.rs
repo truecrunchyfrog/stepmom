@@ -1,4 +1,4 @@
-use crate::{coins::take_coins, prelude::create_message_ref, StarCost};
+use crate::{coins::take_coins, messaging::create_message_ref, StarringConfig};
 use poise::{serenity_prelude::{self as serenity, futures::future::join_all, ChannelId, CreateAllowedMentions, CreateAttachment, CreateMessage, Mentionable, MessageId}, Modal};
 
 use super::ApplicationContext;
@@ -10,13 +10,13 @@ struct StarModal {
     cost: String
 }
 
-fn message_starring_cost(star_cost_config: &StarCost, message: &serenity::Message) -> u64 {
+fn message_starring_cost(starring_config: &StarringConfig, message: &serenity::Message) -> u64 {
     let content_length = message.content.len();
     let attachments_length = message.attachments.len();
 
-    star_cost_config.base +
-        (content_length as f64 * star_cost_config.per_character) as u64 +
-        attachments_length as u64 * star_cost_config.per_attachment
+    starring_config.base +
+        (content_length as f64 * starring_config.per_character) as u64 +
+        attachments_length as u64 * starring_config.per_attachment
 }
 
 #[poise::command(context_menu_command = "Star!", guild_only)]
@@ -53,7 +53,7 @@ pub async fn star(
     }
 
     let starboard_channel = ctx.http().get_channel(
-        ChannelId::new(ctx.data.config.channels.starboard_channel)).await?
+        ctx.data.config.channels.starboard).await?
         .guild().unwrap();
 
     if message.channel_id == starboard_channel.id {

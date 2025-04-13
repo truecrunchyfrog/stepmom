@@ -1,18 +1,18 @@
 use std::time::Duration;
 
 use humantime::format_duration;
-use poise::serenity_prelude::{futures::lock::Mutex, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Mentionable, MessageBuilder, User, UserId, VoiceState};
+use poise::serenity_prelude::{futures::lock::Mutex, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Member, Mentionable, MessageBuilder, User, UserId, VoiceState};
 use rand::Rng;
-use sqlx::{types::time::OffsetDateTime, Acquire};
+use sqlx::types::time::OffsetDateTime;
 use tokio::time::Instant;
 
-use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, prelude::try_dm_or_in_guild, rewards::{user_claim_reward, Reward}, Channels, Config, Data, DbConn};
+use crate::{leaderboard::{real_leaderboard_start_datetime, user_place}, messaging::try_dm_or_in_guild, product::Product, ChannelConfig, Config, Data, DbConn};
 
-fn is_study_vc(channels_config: &Channels, channel_id: ChannelId) -> bool {
-    !channels_config.slacking_voice_channels.contains(&u64::from(channel_id))
+fn is_study_vc(channels_config: &ChannelConfig, channel_id: ChannelId) -> bool {
+    !channels_config.slacking_rooms.contains(&channel_id)
 }
 
-fn is_voice_state_studying(channels_config: &Channels, state: &VoiceState) -> bool {
+fn is_voice_state_studying(channels_config: &ChannelConfig, state: &VoiceState) -> bool {
     state.channel_id.map(|cid| is_study_vc(channels_config, cid))
         .unwrap_or(false)
 }
@@ -77,9 +77,10 @@ pub async fn voice_state_update(ctx: &Context, data: &Data, old: Option<&VoiceSt
         .unwrap_or(false);
     let study_now = is_voice_state_studying(&data.config.channels, new);
 
+    let member = new.member.ok_or(anyhow!("Cannot get member from voice state update. Did they leave while in a room?"))?;
     match (study_before, study_now) {
-        (false, true) => begin_studying(ctx, data, new.user_id).await,
-        (true, false) => end_studying(ctx, data, new.user_id).await?,
+        (false, true) => begin_studying(ctx, data, member).await,
+        (true, false) => end_studying(ctx, data, member).await?,
         _ => ()
     }
 
@@ -102,18 +103,18 @@ async fn begin_studying(ctx: &Context, data: &Data, user_id: UserId) {
     });
 }
 
-async fn end_studying(ctx: &Context, data: &Data, user_id: UserId) -> anyhow::Result<()> {
+async fn end_studying(ctx: &Context, data: &Data, member: Member) -> anyhow::Result<()> {
     let mut study_states = data.study_states.lock().await;
 
     let Some(state) = study_states.remove(&user_id) else { anyhow::bail!("Cannot stop studying if not studying.") };
-    finish_session(ctx, data, user_id, state, true).await?;
+    finish_session(ctx, data, member, state, true).await?;
     Ok(())
 }
 
 pub async fn finish_session(
     ctx: &Context,
     data: &Data,
-    user_id: UserId,
+    member: Member,
     state: StudyState,
     alert: bool
 ) -> anyhow::Result<()> {
@@ -129,11 +130,11 @@ pub async fn finish_session(
     let lb_start = real_leaderboard_start_datetime();
 
     let lb_place_before =
-        user_place(&mut data.db_pool.acquire().await.unwrap(), user_id, lb_start).await?;
+        user_place(&mut data.db_pool.acquire().await.unwrap(), member.user.id, lb_start).await?;
 
-    let streak_before = user_streak(&mut data.db_pool.acquire().await.unwrap(), user_id).await?;
+    let streak_before = user_streak(&mut data.db_pool.acquire().await.unwrap(), member.user.id).await?;
 
-    let uid = i64::from(user_id);
+    let uid = i64::from(member.user.id);
 
     let session_id = {
         let coins = coins as i64;
@@ -160,9 +161,9 @@ pub async fn finish_session(
     };
 
     let lb_place_after =
-        user_place(&mut data.db_pool.acquire().await.unwrap(), user_id, lb_start).await?;
+        user_place(&mut data.db_pool.acquire().await.unwrap(), member.user.id, lb_start).await?;
 
-    let streak_after = user_streak(&mut data.db_pool.acquire().await.unwrap(), user_id).await?;
+    let streak_after = user_streak(&mut data.db_pool.acquire().await.unwrap(), member.user.id).await?;
 
     let mut rewards = Vec::new();
 
@@ -232,14 +233,14 @@ pub async fn finish_session(
         let mut claimed_rewards = Vec::new();
 
         for reason in rewards {
+            let product = Product::random_reward();
+            product.give_to_member(&mut tx, ctx.http(), member).await?;
+
             claimed_rewards.push(
-                user_claim_reward(
-                    &mut tx,
-                    user_id,
-                    Reward::random(),
-                    reason.to_string())
-                .map(|reward_id_res| reward_id_res.map(|reward_id| (reason, reward_id)))
-                .await?
+                (
+                    reason,
+                    product.register_received_reward(&mut tx, member.user.id, reason.to_string()).await?
+                )
             );
         }
 
@@ -262,7 +263,7 @@ pub async fn finish_session(
                 .time_left as u64).into()
         } else { None };
 
-        let user = ctx.http().get_user(user_id).await?;
+        let user = ctx.http().get_user(member.user.id).await?;
         messages.push(result_message(StudyResult {
             user: &user,
             session_id,
@@ -293,7 +294,7 @@ pub async fn finish_session(
                     .style(ButtonStyle::Success))
         }));
 
-        match user_results_mode(&mut data.db_pool.acquire().await.unwrap(), user_id).await? {
+        match user_results_mode(&mut data.db_pool.acquire().await.unwrap(), member.user.id).await? {
             ResultsMode::Off => (),
             ResultsMode::Dm => {
                 for msg in messages {
@@ -301,10 +302,7 @@ pub async fn finish_session(
                 }
             }
             ResultsMode::Guild => {
-                let channel = &ctx.http().get_channel(
-                    ChannelId::new(data.config.channels.dm_backup_channel))
-                    .await?
-                    .guild().unwrap();
+                let channel = data.config.channels.dm_backup;
 
                 for msg in messages {
                     let guild_msg = channel

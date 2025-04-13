@@ -5,12 +5,12 @@ use crate::Context;
 /// Shop boosters, roles, and more!
 #[poise::command(slash_command, prefix_command, ephemeral)]
 pub async fn shop(ctx: Context<'_>) -> anyhow::Result<()> {
-    let uuid = ctx.id().to_string();
+    let uuid = ctx.id();
 
     ctx.send(CreateReply::default()
         .components(vec![
             CreateActionRow::SelectMenu(
-                CreateSelectMenu::new(&uuid, CreateSelectMenuKind::String {
+                CreateSelectMenu::new(&uuid.to_string(), CreateSelectMenuKind::String {
                     options: ctx.data().config.shop
                         .iter().zip(0..)
                         .map(|(item, index)| CreateSelectMenuOption::new(item.product.to_string(), index.to_string()))
@@ -24,7 +24,7 @@ pub async fn shop(ctx: Context<'_>) -> anyhow::Result<()> {
         .author_id(ctx.author().id)
         .channel_id(ctx.channel_id())
         .timeout(std::time::Duration::from_secs(10 * 60))
-        .filter(|mci| &mci.data.custom_id == &uuid)
+        .filter(move |mci| mci.data.custom_id == uuid.to_string())
         .await
     {
 

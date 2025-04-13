@@ -9,9 +9,9 @@ pub async fn create_scheduler() -> anyhow::Result<JobScheduler, JobSchedulerErro
     Ok(sched)
 }
 
-pub async fn add_scheduler_items(ctx: &Context, data: &Data) -> anyhow::Result<(), JobSchedulerError> {
-    data.scheduler.add(leaderboard::leaderboard_new_month_job(ctx, data)).await?;
-    data.scheduler.add(bumping::bump_reminder_job(ctx, data)).await?;
+pub async fn add_scheduler_items(ctx: &Context, data: &Data) -> anyhow::Result<()> {
+    data.scheduler.add(leaderboard::leaderboard_new_month_job(ctx, data)?).await?;
+    data.scheduler.add(bumping::bump_reminder_job(ctx, data)?).await?;
 
     Ok(())
 }

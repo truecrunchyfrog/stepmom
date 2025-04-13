@@ -1,7 +1,8 @@
 use std::time::Duration;
 
+use anyhow::anyhow;
 use humantime::format_duration;
-use poise::serenity_prelude::{futures::lock::Mutex, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, FutureExt, Member, Mentionable, MessageBuilder, User, UserId, VoiceState};
+use poise::serenity_prelude::{futures::lock::Mutex, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, Member, Mentionable, MessageBuilder, User, UserId, VoiceState};
 use rand::Rng;
 use sqlx::types::time::OffsetDateTime;
 use tokio::time::Instant;
@@ -77,9 +78,10 @@ pub async fn voice_state_update(ctx: &Context, data: &Data, old: Option<&VoiceSt
         .unwrap_or(false);
     let study_now = is_voice_state_studying(&data.config.channels, new);
 
-    let member = new.member.ok_or(anyhow!("Cannot get member from voice state update. Did they leave while in a room?"))?;
+    let member = &new.member.to_owned()
+        .ok_or(anyhow!("Cannot get member from voice state update. Did they leave while in a room?"))?;
     match (study_before, study_now) {
-        (false, true) => begin_studying(ctx, data, member).await,
+        (false, true) => begin_studying(ctx, data, member.user.id).await,
         (true, false) => end_studying(ctx, data, member).await?,
         _ => ()
     }
@@ -103,10 +105,10 @@ async fn begin_studying(ctx: &Context, data: &Data, user_id: UserId) {
     });
 }
 
-async fn end_studying(ctx: &Context, data: &Data, member: Member) -> anyhow::Result<()> {
+async fn end_studying(ctx: &Context, data: &Data, member: &Member) -> anyhow::Result<()> {
     let mut study_states = data.study_states.lock().await;
 
-    let Some(state) = study_states.remove(&user_id) else { anyhow::bail!("Cannot stop studying if not studying.") };
+    let Some(state) = study_states.remove(&member.user.id) else { anyhow::bail!("Cannot stop studying if not studying.") };
     finish_session(ctx, data, member, state, true).await?;
     Ok(())
 }
@@ -114,7 +116,7 @@ async fn end_studying(ctx: &Context, data: &Data, member: Member) -> anyhow::Res
 pub async fn finish_session(
     ctx: &Context,
     data: &Data,
-    member: Member,
+    member: &Member,
     state: StudyState,
     alert: bool
 ) -> anyhow::Result<()> {
@@ -234,7 +236,7 @@ pub async fn finish_session(
 
         for reason in rewards {
             let product = Product::random_reward();
-            product.give_to_member(&mut tx, ctx.http(), member).await?;
+            product.give_to_member(&mut tx, ctx.http(), &member).await?;
 
             claimed_rewards.push(
                 (

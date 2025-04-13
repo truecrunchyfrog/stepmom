@@ -5,7 +5,7 @@ use poise::serenity_prelude::CreateAttachment;
 use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ChartTheme {
     Default = 0,
     Dark,

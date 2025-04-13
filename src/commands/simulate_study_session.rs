@@ -34,7 +34,7 @@ pub async fn simulate_study_session(
     finish_session(
         ctx.serenity_context(),
         ctx.data(),
-        member,
+        &member,
         study_state,
         alert
     ).await?;

@@ -32,11 +32,11 @@ impl ToString for Product {
 }
 
 impl Product {
-    pub async fn give_to_member(self, conn: DbConn<'_>, http: impl CacheHttp, member: Member) -> anyhow::Result<()> {
+    pub async fn give_to_member(&self, conn: DbConn<'_>, http: impl CacheHttp, member: &Member) -> anyhow::Result<()> {
         match self {
-            Self::Coins(amount) => add_coins(conn, member.user.id, amount).await?,
+            Self::Coins(amount) => add_coins(conn, member.user.id, *amount).await?,
             Self::Booster(Booster { multiplier, expiration }) => {
-                let multiplier = multiplier as i64;
+                let multiplier = *multiplier as i64;
                 let expiration = expiration.as_secs() as i64;
                 let uid = i64::from(member.user.id);
                 sqlx::query!("
@@ -48,7 +48,7 @@ impl Product {
             }
             Self::Role { role_id, .. } => member.add_role(http.http(), role_id).await?,
             Self::ChartTheme(theme) => {
-                let theme = theme as i64;
+                let theme = *theme as i64;
                 let uid = i64::from(member.user.id);
                 sqlx::query!("
                 INSERT INTO owned_chart_themes

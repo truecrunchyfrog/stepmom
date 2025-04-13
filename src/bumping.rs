@@ -46,7 +46,7 @@ pub async fn check_bump(ctx: &Context, message: &Message, data: &Data) -> anyhow
         .execute(&data.db_pool)
         .await?;
 
-    ctx.http().send_message(
+    ctx.http.send_message(
         message.channel_id,
         Vec::new(),
         &CreateMessage::new()

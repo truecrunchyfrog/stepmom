@@ -18,7 +18,7 @@ impl Product {
         }
     }
 
-    pub async fn register_received_reward(self, conn: DbConn<'_>, uid: UserId, reason: String) -> anyhow::Result<i64> {
+    pub async fn register_received_reward(&self, conn: DbConn<'_>, uid: UserId, reason: String) -> anyhow::Result<i64> {
         let uid = i64::from(uid);
         let description = self.to_string();
 

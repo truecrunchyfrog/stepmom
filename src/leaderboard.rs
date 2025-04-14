@@ -122,7 +122,7 @@ async fn leaderboard_new_month(db: &mut PoolConnection<Sqlite>, http: impl Cache
                 reward.register_received_reward(
                     &mut tx,
                     *uid,
-                    "Monthly challenge reward".to_string());
+                    "Monthly challenge reward".to_string()).await?;
 
                 reward.give_to_member(
                     &mut tx,
@@ -155,7 +155,7 @@ async fn leaderboard_new_month(db: &mut PoolConnection<Sqlite>, http: impl Cache
 
     for uid in gift_to_users {
         let mut tx = db.begin().await.unwrap();
-        community_gift.register_received_reward(&mut tx, uid, "Monthly Challenge Community Gift".to_string());
+        community_gift.register_received_reward(&mut tx, uid, "Monthly Challenge Community Gift".to_string()).await?;
         community_gift.give_to_member(
             &mut tx,
             http.http(),

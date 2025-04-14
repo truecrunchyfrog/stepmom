@@ -1,6 +1,6 @@
 use humantime::format_duration;
 use num_format::{Locale, ToFormattedString};
-use poise::serenity_prelude::{CacheHttp, Member, RoleId, UserId};
+use poise::serenity_prelude::{CacheHttp, Member, RoleId};
 use serde::Deserialize;
 
 use crate::{booster::Booster, charts::ChartTheme, coins::add_coins, DbConn};

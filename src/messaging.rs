@@ -1,4 +1,4 @@
-use poise::serenity_prelude::{ButtonStyle, CacheHttp, ChannelId, CreateButton, CreateMessage, Mentionable, Message, User};
+use poise::serenity_prelude::{ButtonStyle, CacheHttp, CreateButton, CreateMessage, Mentionable, Message, User};
 
 use crate::{Data, DbConn};
 

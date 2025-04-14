@@ -18,7 +18,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent, data: &Data) -> any
             Ok(())
         }
         Message { new_message } => {
-            check_bump(ctx, new_message, data).await;
+            check_bump(ctx, new_message, data).await?;
             Ok(())
         }
         InteractionCreate { interaction } =>

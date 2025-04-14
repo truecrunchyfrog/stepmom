@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use poise::serenity_prelude::{CacheHttp, ChannelId, Context, CreateMessage, EmbedMessageBuilding, Message, MessageBuilder, UserId};
+use poise::serenity_prelude::{Context, CreateMessage, EmbedMessageBuilding, Message, MessageBuilder, UserId};
 use serde::Deserialize;
 use tokio_cron_scheduler::Job;
 

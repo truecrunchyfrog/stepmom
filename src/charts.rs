@@ -1,14 +1,15 @@
-use std::sync::Arc;
+use std::{mem::transmute, sync::Arc};
 
 use charming::{Chart, ImageRenderer};
-use poise::serenity_prelude::CreateAttachment;
+use poise::serenity_prelude::{CreateAttachment, UserId};
 use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
 use serde::{Deserialize, Serialize};
 
+use crate::DbConn;
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ChartTheme {
-    Default = 0,
-    Dark,
+    Dark = 0,
     Vintage,
     Westeros,
     Essos,
@@ -23,25 +24,42 @@ pub enum ChartTheme {
     Halloween
 }
 
+const DEFAULT_CHART_THEME: ChartTheme = ChartTheme::Walden;
+
 impl Into<charming::theme::Theme> for ChartTheme {
     fn into(self) -> charming::theme::Theme {
+        use charming::theme::Theme as T;
         match self {
-            Self::Default => charming::theme::Theme::Default,
-            Self::Dark => charming::theme::Theme::Dark,
-            Self::Vintage => charming::theme::Theme::Vintage,
-            Self::Westeros => charming::theme::Theme::Westeros,
-            Self::Essos => charming::theme::Theme::Essos,
-            Self::Wonderland => charming::theme::Theme::Wonderland,
-            Self::Walden => charming::theme::Theme::Walden,
-            Self::Chalk => charming::theme::Theme::Chalk,
-            Self::Infographic => charming::theme::Theme::Infographic,
-            Self::Macarons => charming::theme::Theme::Macarons,
-            Self::Roma => charming::theme::Theme::Roma,
-            Self::Shine => charming::theme::Theme::Shine,
-            Self::PurplePassion => charming::theme::Theme::PurplePassion,
-            Self::Halloween => charming::theme::Theme::Halloween,
+            Self::Dark => T::Dark,
+            Self::Vintage => T::Vintage,
+            Self::Westeros => T::Westeros,
+            Self::Essos => T::Essos,
+            Self::Wonderland => T::Wonderland,
+            Self::Walden => T::Walden,
+            Self::Chalk => T::Chalk,
+            Self::Infographic => T::Infographic,
+            Self::Macarons => T::Macarons,
+            Self::Roma => T::Roma,
+            Self::Shine => T::Shine,
+            Self::PurplePassion => T::PurplePassion,
+            Self::Halloween => T::Halloween,
         }
     }
+}
+
+pub async fn get_user_theme(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<ChartTheme> {
+    let uid = i64::from(uid);
+
+    Ok(sqlx::query!("
+    SELECT chart_theme_id FROM selected_chart_themes selected
+    JOIN owned_chart_themes owned ON
+        selected.owned_chart_theme_id = owned.id
+    WHERE selected.user_id = (SELECT id FROM users WHERE uid = $2)
+    ", uid)
+        .fetch_optional(conn)
+        .await?
+        .map(|chart_theme| unsafe { transmute::<u8, ChartTheme>(chart_theme.chart_theme_id as u8) })
+        .unwrap_or(DEFAULT_CHART_THEME))
 }
 
 pub fn render_chart_to_bytes(renderer: &mut ImageRenderer, chart: &Chart) -> anyhow::Result<Vec<u8>> {

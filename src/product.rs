@@ -53,7 +53,9 @@ impl Product {
                 sqlx::query!("
                 INSERT INTO owned_chart_themes
                 VALUES (NULL, $1, (SELECT id FROM users WHERE uid = $2))
-                ", theme, uid);
+                ", theme, uid)
+                    .execute(&mut *conn)
+                    .await?;
             }
         }
 

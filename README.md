@@ -1,4 +1,5 @@
-# Momentum, now with momentum!
+# Momentum, now with momentum
+
 Momentum (he/she) is a bot for the amazing Discord community Study Fam.
 She is not a tool, but an assistant, and friend, for our fellow members who study with us.
 

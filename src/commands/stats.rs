@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use charming::{component::{Axis, Title}, element::{AreaStyle, AxisType}, series::Line, theme::Theme, Chart, ImageRenderer};
+use charming::{component::{Axis, Title}, element::{AreaStyle, AxisType}, series::Line, Chart, ImageRenderer};
 use chrono::{NaiveDate, Utc};
 use humantime::{format_duration, parse_duration};
 use num_format::{Locale, ToFormattedString};

@@ -56,41 +56,32 @@ pub async fn star(
         ctx.data.config.channels.starboard).await?
         .guild().unwrap();
 
-    if message.channel_id == starboard_channel.id {
-        anyhow::bail!("Messages cannot be starred in this channel.")
-    }
+    anyhow::ensure!(message.channel_id == starboard_channel.id, "Messages cannot be starred in this channel.");
 
     let cost = message_starring_cost(&ctx.data.config.star_cost, &message);
 
     if let Some(data) = poise::modal::execute_modal(ctx, Some(StarModal { cost: cost.to_string() }), None).await? {
-        if data.cost.parse::<u64>().unwrap_or(0) != cost {
-            anyhow::bail!("Cost did not match, and was probably changed by user. Canceled.")
-        }
+        anyhow::ensure!(data.cost.parse() == Ok(cost), "Cost did not match, and was probably changed by user. Canceled.");
 
         let mut tx = ctx.data.db_pool.begin().await?;
 
-        take_coins(
-            &mut tx,
-            ctx.author().id,
-            cost as u64,
-            "message starring".to_string(),
-            None).await?;
+        take_coins(&mut tx, ctx.author().id, cost, "message starring".to_string(), None).await?;
 
         let repost = starboard_channel.send_message(ctx.http(), CreateMessage::new()
             .content(format!("
 -# originally posted by {} in {} <t:{}:R>
 -# starred by {}\n
 {}
-            ",
-            message.author.mention(),
-            message.link(),
-            message.edited_timestamp.unwrap_or(message.timestamp).unix_timestamp(),
-            ctx.author().mention(),
-            message.content
+                ",
+                message.author.mention(),
+                message.link(),
+                message.edited_timestamp.unwrap_or(message.timestamp).unix_timestamp(),
+                ctx.author().mention(),
+                message.content
             ))
 
             .files(join_all(
-                    message.attachments.iter()
+                message.attachments.iter()
                     .map(|a| CreateAttachment::url(ctx.http(), &a.url))
             ).await.into_iter().collect::<Result<Vec<_>, _>>()?)
 

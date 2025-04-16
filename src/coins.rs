@@ -13,7 +13,7 @@ pub struct InsufficientFundsError {
     /// The name of the product.
     pub product: String,
     /// The cost of the product.
-    pub cost: u64
+    pub cost: u64,
 }
 
 impl std::error::Error for InsufficientFundsError {}
@@ -21,7 +21,7 @@ impl std::error::Error for InsufficientFundsError {}
 impl fmt::Display for InsufficientFundsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
-            "{}n't have enough coins to pay for {}. Cost: **{}**\nBalance: **{}** (need **{}** more!)",
+            "{}n't have enough coins to pay for {}.\nCost: **{}**\nBalance: **{}** (need **{}** more!)",
             self.second_user.as_deref().map_or("You do".to_string(), |u| format!("{} does", u)),
             self.product,
             self.cost,
@@ -32,38 +32,54 @@ impl fmt::Display for InsufficientFundsError {
 
 impl fmt::Debug for InsufficientFundsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Insufficient funds while trying to pay for `{}`. Have {}. Need {}.", self.product, self.balance, self.cost)
+        write!(
+            f,
+            "Insufficient funds while trying to pay for `{}`. Have {}. Need {}.",
+            self.product, self.balance, self.cost
+        )
     }
 }
 
 pub async fn user_balance(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<u64> {
     let uid = i64::from(uid);
-    Ok(sqlx::query!("
+    Ok(sqlx::query!(
+        "
     SELECT COALESCE(SUM(coins_diff), 0) AS balance FROM users
     JOIN coin_transactions ON users.id = coin_transactions.user_id
     WHERE uid = $1
-    ", uid)
-        .fetch_one(conn)
-        .await?
-        .balance as u64)
+    ",
+        uid
+    )
+    .fetch_one(conn)
+    .await?
+    .balance as u64)
 }
 
-pub async fn coin_transaction(conn: DbConn<'_>, uid: UserId, balance_diff: i64) -> anyhow::Result<()> {
+pub async fn coin_transaction(
+    conn: DbConn<'_>,
+    uid: UserId,
+    balance_diff: i64,
+) -> anyhow::Result<()> {
     let uid = i64::from(uid);
 
-    match sqlx::query!("
+    match sqlx::query!(
+        "
     INSERT INTO coin_transactions (user_id, coins_diff)
     SELECT users.id, $2 FROM users
     JOIN coin_transactions t ON users.id = t.user_id
     GROUP BY users.id
     HAVING uid = $1 AND COALESCE(SUM(coins_diff), 0) + $2 >= 0
-    ", uid, balance_diff)
-        .execute(conn)
-        .await?
-        .rows_affected() {
-            0 => Err(anyhow::anyhow!("Cannot create coin transaction.")),
-            _ => Ok(())
-        }
+    ",
+        uid,
+        balance_diff
+    )
+    .execute(conn)
+    .await?
+    .rows_affected()
+    {
+        0 => Err(anyhow::anyhow!("Cannot create coin transaction.")),
+        _ => Ok(()),
+    }
 }
 
 pub async fn add_coins(conn: DbConn<'_>, uid: UserId, coins: u64) -> anyhow::Result<()> {
@@ -79,15 +95,16 @@ pub async fn take_coins<'a>(
     uid: UserId,
     cost: u64,
     product: String,
-    second_user: Option<&'a User>
+    second_user: Option<&'a User>,
 ) -> anyhow::Result<()> {
     match sub_coins(conn, uid, cost).await {
         Err(_) => Err(InsufficientFundsError {
             second_user: second_user.map(|u| u.display_name().to_string()),
             balance: user_balance(conn, uid).await?,
             product,
-            cost
-        }.into()),
-        otherwise => otherwise
+            cost,
+        }
+        .into()),
+        otherwise => otherwise,
     }
 }

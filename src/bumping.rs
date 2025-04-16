@@ -8,6 +8,7 @@ use crate::Data;
 
 #[derive(Deserialize)]
 pub struct BumpingConfig {
+    #[serde(with = "humantime_serde")]
     reminder_delay: Duration,
     bot_id: UserId,
     command_id: u64

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use humantime::format_duration;
+use num_format::{Locale, ToFormattedString};
 use poise::serenity_prelude::{futures::lock::Mutex, ButtonStyle, CacheHttp, ChannelId, Context, CreateButton, CreateMessage, Member, Mentionable, MessageBuilder, User, UserId, VoiceState};
 use rand::Rng;
 use sqlx::types::time::OffsetDateTime;
@@ -381,7 +382,7 @@ async fn result_message(result: StudyResult<'_>, config: &Config) -> CreateMessa
         }
 
         b.push(":purse: ");
-        b.push_bold(format!("+{}", result.coins));
+        b.push_bold(format!("+{}", result.coins.to_formatted_string(&Locale::en)));
         b.push_line(" coins");
 
         match result.leaderboard_place {

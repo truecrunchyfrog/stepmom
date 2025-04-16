@@ -12,7 +12,7 @@ pub async fn shop(ctx: Context<'_>) -> anyhow::Result<()> {
 
     let options = shop_items_zipped.iter()
         .map(|(item, index)| CreateSelectMenuOption::new(item.product.to_string(), index.to_string()))
-        .into_iter().collect::<Vec<_>>();
+        .collect::<Vec<_>>();
 
     ctx.send(CreateReply::default()
         .components(vec![
@@ -43,7 +43,7 @@ pub async fn shop(ctx: Context<'_>) -> anyhow::Result<()> {
                 selected_item = Some(item);
 
                 mci.message.clone().edit(ctx, EditMessage::new().embed(
-                        CreateEmbed::new()
+                    CreateEmbed::new()
                         .title(item.product.to_string())
                         .field(item.cost.to_string(), "coins", false)
                         .description(item.description.to_owned()))).await?;
@@ -57,9 +57,9 @@ pub async fn shop(ctx: Context<'_>) -> anyhow::Result<()> {
                             &mut tx,
                             member.user.id,
                             item.cost,
-                            format!("buy {}", item.product.to_string()),
+                            format!("buy {}", item.product),
                             None).await?;
-                        item.product.give_to_member(&mut tx, ctx, &member).await?;
+                        item.product.give_to_member(&mut tx, ctx, member).await?;
                         tx.commit().await?;
                         mci.create_response(ctx, CreateInteractionResponse::Message(
                                 CreateInteractionResponseMessage::new().content(

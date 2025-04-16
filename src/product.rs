@@ -1,6 +1,6 @@
 use humantime::format_duration;
 use num_format::{Locale, ToFormattedString};
-use poise::serenity_prelude::{CacheHttp, Member, RoleId};
+use poise::serenity_prelude::{CacheHttp, Member, Mentionable, ReactionType, RoleId};
 use serde::Deserialize;
 
 use crate::{booster::Booster, charts::ChartTheme, coins::add_coins, DbConn};
@@ -13,21 +13,23 @@ pub enum Product {
     ChartTheme(ChartTheme)
 }
 
-impl ToString for Product {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Coins(amount) =>
+impl std::fmt::Display for Product {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}",
+            match self {
+                Self::Coins(amount) =>
                 format!(
                     "{} coins",
                     amount.to_formatted_string(&Locale::en)),
-            Self::Booster(Booster { multiplier, expiration }) =>
+                Self::Booster(Booster { multiplier, expiration }) =>
                 format!(
                     "{}x booster (expires in {})",
                     *multiplier as f64 / 100.0,
                     format_duration(*expiration)),
-            Self::Role { name, .. } => name.to_string(),
-            Self::ChartTheme(theme) => format!("Chart theme {:?}", theme)
-        }
+                Self::Role { name, .. } => name.to_string(),
+                Self::ChartTheme(theme) => format!("Chart theme {:?}", theme)
+            }
+        )
     }
 }
 

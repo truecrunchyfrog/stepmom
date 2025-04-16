@@ -63,4 +63,26 @@ impl Product {
 
         Ok(())
     }
+
+    pub fn emoji(&self) -> ReactionType {
+        match self {
+            Self::Coins(_) => ReactionType::Unicode("💰".to_string()),
+            Self::Booster(_) => ReactionType::Unicode("🚀".to_string()),
+            Self::Role { .. } => ReactionType::Unicode("🏷️".to_string()),
+            Self::ChartTheme(_) => ReactionType::Unicode("📊".to_string())
+        }
+    }
+
+    pub fn fields(&self) -> Vec<(String, String)> {
+        match self {
+            Self::Booster(Booster { multiplier, expiration }) => vec![
+                ("Multiplier".to_string(), format!("{}x", *multiplier as f64 / 100.0)),
+                ("Expiration".to_string(), format_duration(*expiration).to_string())
+            ],
+            Self::Role { role_id, .. } => vec![
+                ("Role".to_string(), role_id.mention().to_string())
+            ],
+            _ => Vec::new()
+        }
+    }
 }

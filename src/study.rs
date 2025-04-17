@@ -354,7 +354,7 @@ async fn result_message(result: StudyResult<'_>, config: &Config) -> CreateMessa
         let mut b = MessageBuilder::new();
 
         if result.streak.0 != result.streak.1 && result.streak.0 > 1 {
-            b.push(":wing: ");
+            b.push(":link: ");
             b.push_bold(result.streak.1.to_string());
             b.push(" → ");
             b.push_bold(result.streak.0.to_string());

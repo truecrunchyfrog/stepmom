@@ -6,7 +6,7 @@ use humantime::{format_duration, parse_duration};
 use num_format::{Locale, ToFormattedString};
 use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, MessageBuilder, User}, CreateReply};
 
-use crate::{charts::{get_user_theme, render_chart_to_attachment}, coins::user_balance, leaderboard::{real_leaderboard_start_datetime, user_place}, study::user_streak, Context};
+use crate::{charts::{user_selected_theme, render_chart_to_attachment}, coins::user_balance, leaderboard::{real_leaderboard_start_datetime, user_place}, study::user_streak, Context};
 
 #[derive(poise::ChoiceParameter)]
 enum Statistic {
@@ -215,11 +215,11 @@ pub async fn stats(
             }
 
             let conn = &mut ctx.data().db_pool.acquire().await?;
-            let theme = get_user_theme(conn, user.id).await?.into();
+            let theme = user_selected_theme(conn, user.id).await?.into();
             let attachment = render_chart_to_attachment(
-                &mut ImageRenderer::new(1024, 512)
-                .theme(theme),
-                &chart)?;
+                &mut ImageRenderer::new(1024, 512).theme(theme),
+                &chart,
+                None)?;
 
             ctx.send(
                 CreateReply::default()
@@ -248,7 +248,7 @@ pub async fn stats(
                             |p| format!("**{}** - leaderboard place", p))
                     )
 
-                    .push(":wing: ")
+                    .push(":link: ")
                     .push_bold(streak.to_string())
                     .push_line(" day streak")
 

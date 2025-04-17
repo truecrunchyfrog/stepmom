@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::DbConn;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum ChartTheme {
     Dark = 0,
     Vintage,
@@ -26,29 +26,44 @@ pub enum ChartTheme {
 
 const DEFAULT_CHART_THEME: ChartTheme = ChartTheme::Walden;
 
-impl Into<charming::theme::Theme> for ChartTheme {
-    fn into(self) -> charming::theme::Theme {
+impl From<ChartTheme> for charming::theme::Theme {
+    fn from(val: ChartTheme) -> Self {
+        use ChartTheme::*;
         use charming::theme::Theme as T;
-        match self {
-            Self::Dark => T::Dark,
-            Self::Vintage => T::Vintage,
-            Self::Westeros => T::Westeros,
-            Self::Essos => T::Essos,
-            Self::Wonderland => T::Wonderland,
-            Self::Walden => T::Walden,
-            Self::Chalk => T::Chalk,
-            Self::Infographic => T::Infographic,
-            Self::Macarons => T::Macarons,
-            Self::Roma => T::Roma,
-            Self::Shine => T::Shine,
-            Self::PurplePassion => T::PurplePassion,
-            Self::Halloween => T::Halloween,
+        match val {
+            Dark => T::Dark,
+            Vintage => T::Vintage,
+            Westeros => T::Westeros,
+            Essos => T::Essos,
+            Wonderland => T::Wonderland,
+            Walden => T::Walden,
+            Chalk => T::Chalk,
+            Infographic => T::Infographic,
+            Macarons => T::Macarons,
+            Roma => T::Roma,
+            Shine => T::Shine,
+            PurplePassion => T::PurplePassion,
+            Halloween => T::Halloween,
         }
     }
 }
 
-pub async fn get_user_theme(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<ChartTheme> {
-    let uid = i64::from(uid);
+pub async fn user_owned_themes(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<Vec<ChartTheme>> {
+    let uid: i64 = uid.into();
+
+    Ok(sqlx::query!("
+    SELECT chart_theme_id FROM owned_chart_themes
+    WHERE user_id = (SELECT id FROM users WHERE uid = $1)
+    ", uid)
+        .fetch_all(conn)
+        .await?
+        .into_iter()
+        .map(|chart_theme| unsafe { transmute::<u8, ChartTheme>(chart_theme.chart_theme_id as u8) })
+        .collect())
+}
+
+pub async fn user_selected_theme(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<ChartTheme> {
+    let uid: i64 = uid.into();
 
     Ok(sqlx::query!("
     SELECT chart_theme_id FROM selected_chart_themes selected
@@ -81,6 +96,8 @@ pub fn render_chart_to_bytes(renderer: &mut ImageRenderer, chart: &Chart) -> any
     Ok(pixmap.encode_png()?)
 }
 
-pub fn render_chart_to_attachment(renderer: &mut ImageRenderer, chart: &Chart) -> anyhow::Result<CreateAttachment> {
-    Ok(CreateAttachment::bytes(render_chart_to_bytes(renderer, chart)?, "chart.png"))
+pub fn render_chart_to_attachment(renderer: &mut ImageRenderer, chart: &Chart, filename: Option<&str>) -> anyhow::Result<CreateAttachment> {
+    Ok(CreateAttachment::bytes(
+        render_chart_to_bytes(renderer, chart)?,
+        filename.unwrap_or("chart.png")))
 }

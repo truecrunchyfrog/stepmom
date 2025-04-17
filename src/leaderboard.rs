@@ -234,7 +234,8 @@ async fn leaderboard_new_month(db: &mut PoolConnection<Sqlite>, http: impl Cache
         .flat_map(|c| render_chart_to_attachment(
             &mut ImageRenderer::new(1024, 512)
             .theme(Theme::Walden),
-            c
+            c,
+            None
         ))
         .collect::<Vec<_>>();
 

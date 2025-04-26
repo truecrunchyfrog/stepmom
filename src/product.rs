@@ -1,4 +1,4 @@
-use charming::{component::Title, series::Line, Chart, ImageRenderer};
+use charming::{component::{Axis, Title}, series::Line, Chart, ImageRenderer};
 use humantime::format_duration;
 use num_format::{Locale, ToFormattedString};
 use poise::serenity_prelude::{CacheHttp, CreateAttachment, Member, Mentionable, ReactionType, RoleId};
@@ -38,25 +38,42 @@ impl std::fmt::Display for Product {
 #[derive(PartialEq)]
 pub enum ProductMemberStatus {
     Available,
-    Unavailable(String),
-    Owned
+    Unavailable(ProductMemberUnavailableReason)
+}
+
+#[derive(PartialEq)]
+pub enum ProductMemberUnavailableReason {
+    Owned,
+    Other(String)
 }
 
 impl Product {
     pub async fn member_status(&self, conn: DbConn<'_>, member: &Member) -> anyhow::Result<ProductMemberStatus> {
         use ProductMemberStatus::*;
+        use ProductMemberUnavailableReason::*;
+
+        if member.user.bot {
+            return Ok(Unavailable(Other("User is a bot.".to_string())));
+        }
+
         Ok(match self {
-            Self::Role { role_id, .. } => if member.roles.contains(role_id) { Owned } else { Available },
+            Self::Role { role_id, .. } => if member.roles.contains(role_id) { Unavailable(Owned) } else { Available },
             Self::ChartTheme(chart_theme) =>
-            if user_owned_themes(conn, member.user.id).await?.contains(chart_theme) { Owned } else { Available },
+            if user_owned_themes(conn, member.user.id).await?.contains(chart_theme) { Unavailable(Owned) } else { Available },
             _ => Available
         })
     }
 
     pub async fn give_to_member(&self, conn: DbConn<'_>, http: impl CacheHttp, member: &Member) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.member_status(conn, member).await? == ProductMemberStatus::Available,
-            "Cannot give product to member.");
+        if let ProductMemberStatus::Unavailable(reason) = self.member_status(conn, member).await? {
+            anyhow::bail!(
+                "Unable to give product: {}",
+                match reason {
+                    ProductMemberUnavailableReason::Owned => "Already owned.".to_string(),
+                    ProductMemberUnavailableReason::Other(reason) => reason,
+                }
+            );
+        };
 
         match self {
             Self::Coins(amount) => add_coins(conn, member.user.id, *amount).await?,
@@ -115,8 +132,16 @@ impl Product {
                 &mut ImageRenderer::new(1024, 512).theme((*theme).into()),
                 &Chart::new()
                     .title(Title::new().text(self.to_string()))
-                    .series(Line::new()
-                        .data(vec![1, 2, 3, 4, 5])),
+                    .x_axis(
+                        Axis::new()
+                            .name("Time")
+                            .data(vec!["1", "2", "3", "4", "5"]))
+                    .y_axis(
+                        Axis::new()
+                            .name("Time")
+                            .data(vec!["1", "2", "3", "4", "5"])),
+                    // .series(Line::new()
+                    //     .data(vec![1, 2, 3, 4, 5])),
                 Some(&format!("{}.png", thread_rng().next_u32()))).ok(),
             _ => None
         }

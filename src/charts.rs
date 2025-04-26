@@ -1,13 +1,16 @@
-use std::{mem::transmute, sync::Arc};
+use std::sync::Arc;
 
-use charming::{Chart, ImageRenderer};
+use anyhow::anyhow;
+use plotters::prelude::*;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 use poise::serenity_prelude::{CreateAttachment, UserId};
 use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
 use serde::{Deserialize, Serialize};
 
 use crate::DbConn;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, FromPrimitive)]
 pub enum ChartTheme {
     Dark = 0,
     Vintage,
@@ -26,46 +29,25 @@ pub enum ChartTheme {
 
 const DEFAULT_CHART_THEME: ChartTheme = ChartTheme::Walden;
 
-impl From<ChartTheme> for charming::theme::Theme {
-    fn from(val: ChartTheme) -> Self {
-        use ChartTheme::*;
-        use charming::theme::Theme as T;
-        match val {
-            Dark => T::Dark,
-            Vintage => T::Vintage,
-            Westeros => T::Westeros,
-            Essos => T::Essos,
-            Wonderland => T::Wonderland,
-            Walden => T::Walden,
-            Chalk => T::Chalk,
-            Infographic => T::Infographic,
-            Macarons => T::Macarons,
-            Roma => T::Roma,
-            Shine => T::Shine,
-            PurplePassion => T::PurplePassion,
-            Halloween => T::Halloween,
-        }
-    }
-}
-
 pub async fn user_owned_themes(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<Vec<ChartTheme>> {
     let uid: i64 = uid.into();
 
-    Ok(sqlx::query!("
+    sqlx::query!("
     SELECT chart_theme_id FROM owned_chart_themes
     WHERE user_id = (SELECT id FROM users WHERE uid = $1)
     ", uid)
         .fetch_all(conn)
         .await?
         .into_iter()
-        .map(|chart_theme| unsafe { transmute::<u8, ChartTheme>(chart_theme.chart_theme_id as u8) })
-        .collect())
+        .map(|chart_theme|
+            ChartTheme::from_i64(chart_theme.chart_theme_id).ok_or(anyhow!("Invalid chart theme with ID.")))
+        .collect()
 }
 
 pub async fn user_selected_theme(conn: DbConn<'_>, uid: UserId) -> anyhow::Result<ChartTheme> {
     let uid: i64 = uid.into();
 
-    Ok(sqlx::query!("
+    sqlx::query!("
     SELECT chart_theme_id FROM selected_chart_themes selected
     JOIN owned_chart_themes owned ON
         selected.owned_chart_theme_id = owned.id
@@ -73,8 +55,9 @@ pub async fn user_selected_theme(conn: DbConn<'_>, uid: UserId) -> anyhow::Resul
     ", uid)
         .fetch_optional(conn)
         .await?
-        .map(|chart_theme| unsafe { transmute::<u8, ChartTheme>(chart_theme.chart_theme_id as u8) })
-        .unwrap_or(DEFAULT_CHART_THEME))
+        .map(|chart_theme|
+            ChartTheme::from_i64(chart_theme.chart_theme_id).ok_or(anyhow!("Invalid chart theme with ID.")))
+        .unwrap_or(Ok(DEFAULT_CHART_THEME))
 }
 
 pub fn render_chart_to_bytes(renderer: &mut ImageRenderer, chart: &Chart) -> anyhow::Result<Vec<u8>> {

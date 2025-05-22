@@ -1,12 +1,12 @@
-use std::time::Duration;
+use std::{borrow::Borrow, time::Duration};
 
-use charming::{component::{Axis, Title}, element::{AreaStyle, AxisType}, series::Line, Chart, ImageRenderer};
 use chrono::{NaiveDate, Utc};
 use humantime::{format_duration, parse_duration};
 use num_format::{Locale, ToFormattedString};
+use plotters::{chart::ChartBuilder, coord::CoordTranslate, element::{CoordMapper, Drawable, PointCollection}, prelude::DrawingBackend, series::{AreaSeries, LineSeries, PointSeries}, style::{ShapeStyle, WHITE}};
 use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, MessageBuilder, User}, CreateReply};
 
-use crate::{charts::{user_selected_theme, render_chart_to_attachment}, coins::user_balance, leaderboard::{real_leaderboard_start_datetime, user_place}, study::user_streak, Context};
+use crate::{charts::{bytes_to_attachment, render_chart_to_bytes, user_selected_theme}, coins::user_balance, leaderboard::{real_leaderboard_start_datetime, user_place}, study::user_streak, Context};
 
 #[derive(poise::ChoiceParameter)]
 enum Statistic {
@@ -69,7 +69,7 @@ pub async fn stats(
             let start = (date - chrono::Duration::from_std(period)?).to_string();
             let end = date.to_string();
 
-            // TODO this is not ideal, very hacky
+            // HACK: this is not ideal, very hacky
             let dates = sqlx::query!("
             WITH RECURSIVE date_range AS (
                 SELECT DATE($1) AS date
@@ -82,149 +82,130 @@ pub async fn stats(
                 .fetch_all(&ctx.data().db_pool)
                 .await?;
 
-            let (title, y_axis_label, series) = match stat {
-                Statistic::Time => {
-                    let data = sqlx::query!("
-                    WITH RECURSIVE date_range AS (
-                        SELECT DATE($1) AS date
-                        UNION ALL
-                        SELECT DATE(date, '+1 day')
-                        FROM date_range
-                        WHERE DATE(date, '+1 day') <= DATE($2)
-                    ),
-                    sessions_with_dates AS (
-                        SELECT id, user_id, length, date
-                        FROM date_range
-                        LEFT JOIN study_sessions
-                            ON date = DATE(ended)
-                    )
-                    SELECT uid, date, COALESCE(SUM(length), 0) AS daily_time
-                    FROM sessions_with_dates
-                    LEFT JOIN users
-                        ON user_id = users.id
-                    WHERE uid IS NULL OR uid = $3
-                    GROUP BY user_id, date
-                    ORDER BY date
-                    ", start, end, uid)
-                        .fetch_all(&ctx.data().db_pool)
-                        .await?;
+            let buffer = render_chart_to_bytes(|drawing_area| {
+                match stat {
+                    Statistic::Time => {
+                        let data = sqlx::query!("
+                        WITH RECURSIVE date_range AS (
+                            SELECT DATE($1) AS date
+                            UNION ALL
+                            SELECT DATE(date, '+1 day')
+                            FROM date_range
+                            WHERE DATE(date, '+1 day') <= DATE($2)
+                        ),
+                        sessions_with_dates AS (
+                            SELECT id, user_id, length, date
+                            FROM date_range
+                            LEFT JOIN study_sessions
+                                ON date = DATE(ended)
+                        )
+                        SELECT uid, date, COALESCE(SUM(length), 0) AS daily_time
+                        FROM sessions_with_dates
+                        LEFT JOIN users
+                            ON user_id = users.id
+                        WHERE uid IS NULL OR uid = $3
+                        GROUP BY user_id, date
+                        ORDER BY date
+                        ", start, end, uid)
+                            .fetch_all(&ctx.data().db_pool)
+                            .await?;
 
-                    ("Study time", "hours/day",
-                     vec![
-                     Line::new()
-                     .area_style(AreaStyle::new())
-                     .data(
-                         data
-                         .iter()
-                         .map(|r| r.daily_time as f64 / 3600.0)
-                         .collect::<Vec<_>>())
-                     ])
+                        ("Study time", "hours/day",
+                            AreaSeries::new(
+                                (0..).zip(data.iter()
+                                    .map(|r| r.daily_time as f64 / 3600.0)), 0.0, WHITE).into_iter()
+                            )
+                    }
+                    Statistic::VideoTime => {
+                        let data = sqlx::query!("
+                        WITH RECURSIVE date_range AS (
+                            SELECT DATE($1) AS date
+                            UNION ALL
+                            SELECT DATE(date, '+1 day')
+                            FROM date_range
+                            WHERE DATE(date, '+1 day') <= DATE($2)
+                        ),
+                        sessions_with_dates AS (
+                            SELECT id, user_id, video_length, date
+                            FROM date_range
+                            LEFT JOIN study_sessions
+                                ON date = DATE(ended)
+                        )
+                        SELECT uid, date, COALESCE(SUM(video_length), 0) AS daily_video_time
+                        FROM sessions_with_dates
+                        LEFT JOIN users
+                            ON user_id = users.id
+                        WHERE uid IS NULL OR uid = $3
+                        GROUP BY user_id, date
+                        ORDER BY date
+                        ", start, end, uid)
+                            .fetch_all(&ctx.data().db_pool)
+                            .await.unwrap();
+
+                        ("Video time", "hours/day",
+                            AreaSeries::new(
+                                (0..).zip(data.iter().map(|r| r.daily_video_time as f64 / 3600.0)), 0.0, WHITE).into_iter()
+                        )
+                    }
+                    Statistic::Balance => {
+                        let data = sqlx::query!("
+                        WITH RECURSIVE date_range AS (
+                            SELECT DATE($1) AS date
+                            UNION ALL
+                            SELECT DATE(date, '+1 day')
+                            FROM date_range
+                            WHERE DATE(date, '+1 day') <= DATE($2)
+                        ),
+                        transactions_with_dates AS (
+                            SELECT id, user_id, coins_diff, timestamp, date
+                            FROM date_range
+                            LEFT JOIN coin_transactions
+                                ON date = DATE(timestamp, 'unixepoch')
+                        )
+                        SELECT
+                            uid, date,
+                            COALESCE(SUM(coins_diff) OVER (ORDER BY date), 0) AS balance
+                        FROM transactions_with_dates
+                        LEFT JOIN users
+                            ON user_id = users.id
+                        WHERE uid IS NULL OR uid = $3
+                        GROUP BY user_id, date
+                        ORDER BY date
+                        ", start, end, uid)
+                            .fetch_all(&ctx.data().db_pool)
+                            .await?;
+
+
+
+                        ("Balance", "Coins",
+                            LineSeries::new(
+                                (0..).zip(data.iter()
+                                    .map(|r| r.balance as f64)), WHITE).into_iter()
+                        )
+                    }
+                };
+
+                let mut chart = ChartBuilder::on(drawing_area)
+                    .caption(title, ("sans-serif", 50))
+                    .build_cartesian_2d(0..(dates.len()), 0..1)?;
+
+                chart.configure_mesh()
+                    .x_desc("Time")
+                    .y_desc(y_axis_label)
+                    .draw()?;
+
+                for s in series {
+                    chart.draw_series(s)?;
                 }
-                Statistic::VideoTime => {
-                    let data = sqlx::query!("
-                    WITH RECURSIVE date_range AS (
-                        SELECT DATE($1) AS date
-                        UNION ALL
-                        SELECT DATE(date, '+1 day')
-                        FROM date_range
-                        WHERE DATE(date, '+1 day') <= DATE($2)
-                    ),
-                    sessions_with_dates AS (
-                        SELECT id, user_id, video_length, date
-                        FROM date_range
-                        LEFT JOIN study_sessions
-                            ON date = DATE(ended)
-                    )
-                    SELECT uid, date, COALESCE(SUM(video_length), 0) AS daily_video_time
-                    FROM sessions_with_dates
-                    LEFT JOIN users
-                        ON user_id = users.id
-                    WHERE uid IS NULL OR uid = $3
-                    GROUP BY user_id, date
-                    ORDER BY date
-                    ", start, end, uid)
-                        .fetch_all(&ctx.data().db_pool)
-                        .await.unwrap();
 
-                    ("Video time", "hours/day",
-                     vec![
-                     Line::new()
-                     .area_style(AreaStyle::new())
-                     .data(
-                         data
-                         .iter()
-                         .map(|r| r.daily_video_time as f64 / 3600.0)
-                         .collect::<Vec<_>>())
-                     ])
-                }
-                Statistic::Balance => {
-                    let data = sqlx::query!("
-                    WITH RECURSIVE date_range AS (
-                        SELECT DATE($1) AS date
-                        UNION ALL
-                        SELECT DATE(date, '+1 day')
-                        FROM date_range
-                        WHERE DATE(date, '+1 day') <= DATE($2)
-                    ),
-                    transactions_with_dates AS (
-                        SELECT id, user_id, coins_diff, timestamp, date
-                        FROM date_range
-                        LEFT JOIN coin_transactions
-                            ON date = DATE(timestamp, 'unixepoch')
-                    )
-                    SELECT
-                        uid, date,
-                        COALESCE(SUM(coins_diff) OVER (ORDER BY date), 0) AS balance
-                    FROM transactions_with_dates
-                    LEFT JOIN users
-                        ON user_id = users.id
-                    WHERE uid IS NULL OR uid = $3
-                    GROUP BY user_id, date
-                    ORDER BY date
-                    ", start, end, uid)
-                        .fetch_all(&ctx.data().db_pool)
-                        .await?;
-
-                    ("Balance", "Coins",
-                     vec![
-                     Line::new()
-                     .data(
-                         data
-                         .iter()
-                         .map(|r| r.balance as f64)
-                         .collect::<Vec<_>>())
-                     ])
-                }
-            };
-
-            let mut chart = Chart::new()
-                .title(Title::new().text(title))
-                .x_axis(
-                    Axis::new()
-                    .type_(AxisType::Category)
-                    .name("Time")
-                    .data(
-                        dates
-                        .iter()
-                        .flat_map(|r| &r.date)
-                        .collect()))
-                .y_axis(Axis::new().type_(AxisType::Value).name(y_axis_label));
-
-            for s in series {
-                chart = chart.series(s);
-            }
+                Ok(())
+            })?;
 
             let conn = &mut ctx.data().db_pool.acquire().await?;
             let theme = user_selected_theme(conn, user.id).await?.into();
-            let attachment = render_chart_to_attachment(
-                &mut ImageRenderer::new(1024, 512).theme(theme),
-                &chart,
-                None)?;
+            let attachment = bytes_to_attachment(buffer, None);
 
-            ctx.send(
-                CreateReply::default()
-                .attachment(attachment)
-            ).await?;
+            ctx.send(CreateReply::default().attachment(attachment)).await?;
             msg.delete(ctx).await?;
         }
         None => {
@@ -256,9 +237,11 @@ pub async fn stats(
                     .push_bold(balance.to_formatted_string(&Locale::en))
                     .push_line(" coins")
 
-                    .build()
-                )
-                .allowed_mentions(CreateAllowedMentions::new())).await?;
+                    .build(),
+                    )
+                    .allowed_mentions(CreateAllowedMentions::new()),
+            )
+            .await?;
         }
     }
 

@@ -1,11 +1,8 @@
-use std::sync::Arc;
-
 use anyhow::anyhow;
-use plotters::prelude::*;
+use plotters::{coord::Shift, prelude::*};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use poise::serenity_prelude::{CreateAttachment, UserId};
-use resvg::{tiny_skia::Pixmap, usvg::{Options, Transform, Tree}};
 use serde::{Deserialize, Serialize};
 
 use crate::DbConn;
@@ -60,27 +57,15 @@ pub async fn user_selected_theme(conn: DbConn<'_>, uid: UserId) -> anyhow::Resul
         .unwrap_or(Ok(DEFAULT_CHART_THEME))
 }
 
-pub fn render_chart_to_bytes(renderer: &mut ImageRenderer, chart: &Chart) -> anyhow::Result<Vec<u8>> {
-    let svg_string = renderer.render(chart)?;
-
-    let mut font_db = resvg::usvg::fontdb::Database::new();
-    font_db.load_system_fonts();
-
-    let options = Options {
-        fontdb: Arc::new(font_db),
-        ..Default::default()
-    };
-    let rtree = Tree::from_str(&svg_string, &options)?;
-
-    let size = rtree.size();
-    let mut pixmap = Pixmap::new(size.width() as u32, size.height() as u32).unwrap();
-    resvg::render(&rtree, Transform::identity(), &mut pixmap.as_mut());
-
-    Ok(pixmap.encode_png()?)
+pub fn render_chart_to_bytes(chart: impl FnOnce(&DrawingArea<BitMapBackend<'_>, Shift>) -> anyhow::Result<()>) -> anyhow::Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    {
+        let root_drawing_area = BitMapBackend::with_buffer(&mut buffer, (1024, 512)).into_drawing_area();
+        chart(&root_drawing_area)?;
+    }
+    Ok(buffer)
 }
 
-pub fn render_chart_to_attachment(renderer: &mut ImageRenderer, chart: &Chart, filename: Option<&str>) -> anyhow::Result<CreateAttachment> {
-    Ok(CreateAttachment::bytes(
-        render_chart_to_bytes(renderer, chart)?,
-        filename.unwrap_or("chart.png")))
+pub fn bytes_to_attachment(bytes: Vec<u8>, filename: Option<&str>) -> CreateAttachment {
+    CreateAttachment::bytes(bytes, filename.unwrap_or("chart.png"))
 }

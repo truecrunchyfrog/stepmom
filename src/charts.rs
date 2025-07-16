@@ -57,11 +57,11 @@ pub async fn user_selected_theme(conn: DbConn<'_>, uid: UserId) -> anyhow::Resul
         .unwrap_or(Ok(DEFAULT_CHART_THEME))
 }
 
-pub fn render_chart_to_bytes(chart: impl FnOnce(&DrawingArea<BitMapBackend<'_>, Shift>) -> anyhow::Result<()>) -> anyhow::Result<Vec<u8>> {
+pub async fn render_chart_to_bytes(chart: impl AsyncFnOnce(DrawingArea<BitMapBackend<'_>, Shift>) -> anyhow::Result<()>) -> anyhow::Result<Vec<u8>> {
     let mut buffer = Vec::new();
     {
         let root_drawing_area = BitMapBackend::with_buffer(&mut buffer, (1024, 512)).into_drawing_area();
-        chart(&root_drawing_area)?;
+        chart(root_drawing_area).await?;
     }
     Ok(buffer)
 }

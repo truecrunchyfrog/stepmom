@@ -3,10 +3,11 @@ use std::{borrow::Borrow, time::Duration};
 use chrono::{NaiveDate, Utc};
 use humantime::{format_duration, parse_duration};
 use num_format::{Locale, ToFormattedString};
-use plotters::{chart::ChartBuilder, coord::CoordTranslate, element::{CoordMapper, Drawable, PointCollection}, prelude::DrawingBackend, series::{AreaSeries, LineSeries, PointSeries}, style::{ShapeStyle, WHITE}};
-use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, MessageBuilder, User}, CreateReply};
+use plotters::{chart::{ChartBuilder, ChartContext}, coord::{types::{RangedCoordi32, RangedCoordusize}, CoordTranslate, Shift}, element::{CoordMapper, Drawable, PointCollection}, prelude::{BitMapBackend, Cartesian2d, DrawingArea, DrawingBackend}, series::{AreaSeries, LineSeries, PointSeries}, style::{ShapeStyle, WHITE}};
+use poise::{serenity_prelude::{AutocompleteChoice, CreateAllowedMentions, MessageBuilder, User, UserId}, CreateReply};
+use sqlx::SqlitePool;
 
-use crate::{charts::{bytes_to_attachment, render_chart_to_bytes, user_selected_theme}, coins::user_balance, leaderboard::{real_leaderboard_start_datetime, user_place}, study::user_streak, Context};
+use crate::{charts::{bytes_to_attachment, render_chart_to_bytes, user_selected_theme}, coins::user_balance, leaderboard::{real_leaderboard_start_datetime, user_place}, study::user_streak, Context, DbConn};
 
 #[derive(poise::ChoiceParameter)]
 enum Statistic {
@@ -59,150 +60,63 @@ pub async fn stats(
                 .content("Generating chart...")
             ).await?;
 
-            let uid = i64::from(user.id);
-
             let date = date.map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d"))
                 .unwrap_or(Ok(Utc::now().date_naive()))?;
             let period = period.map(|p| parse_duration(&p))
                 .unwrap_or(Ok(Duration::from_secs((30.5 * 24.0 * 60.0 * 60.0) as u64)))?;
 
-            let start = (date - chrono::Duration::from_std(period)?).to_string();
-            let end = date.to_string();
+            let buffer = render_chart_to_bytes(async |drawing_area| {
+                let ctx = ChartStatsContext {
+                    pool: ctx.data().db_pool.clone(),
+                    start: date - chrono::Duration::from_std(period)?,
+                    end: date,
+                    uid: user.id,
+                };
 
-            // HACK: this is not ideal, very hacky
-            let dates = sqlx::query!("
-            WITH RECURSIVE date_range AS (
-                SELECT DATE($1) AS date
-                UNION ALL
-                SELECT DATE(date, '+1 day')
-                FROM date_range
-                WHERE DATE(date, '+1 day') <= DATE($2)
-            ) SELECT * FROM date_range
-            ", start, end)
-                .fetch_all(&ctx.data().db_pool)
-                .await?;
-
-            let buffer = render_chart_to_bytes(|drawing_area| {
                 match stat {
                     Statistic::Time => {
-                        let data = sqlx::query!("
-                        WITH RECURSIVE date_range AS (
-                            SELECT DATE($1) AS date
-                            UNION ALL
-                            SELECT DATE(date, '+1 day')
-                            FROM date_range
-                            WHERE DATE(date, '+1 day') <= DATE($2)
-                        ),
-                        sessions_with_dates AS (
-                            SELECT id, user_id, length, date
-                            FROM date_range
-                            LEFT JOIN study_sessions
-                                ON date = DATE(ended)
-                        )
-                        SELECT uid, date, COALESCE(SUM(length), 0) AS daily_time
-                        FROM sessions_with_dates
-                        LEFT JOIN users
-                            ON user_id = users.id
-                        WHERE uid IS NULL OR uid = $3
-                        GROUP BY user_id, date
-                        ORDER BY date
-                        ", start, end, uid)
-                            .fetch_all(&ctx.data().db_pool)
-                            .await?;
+                        let mut chart = ChartBuilder::on(&drawing_area)
+                            .caption("Study time", ("sans-serif", 50))
+                            .build_cartesian_2d(0..(ctx.dates().await?.len()), 0..1)?;
 
-                        ("Study time", "hours/day",
-                            AreaSeries::new(
-                                (0..).zip(data.iter()
-                                    .map(|r| r.daily_time as f64 / 3600.0)), 0.0, WHITE).into_iter()
-                            )
+                        chart.configure_mesh()
+                            .x_desc("Time")
+                            .y_desc("hours/day")
+                            .draw()?;
+
+                        draw_study_time_stats(ctx, &mut chart).await?;
                     }
                     Statistic::VideoTime => {
-                        let data = sqlx::query!("
-                        WITH RECURSIVE date_range AS (
-                            SELECT DATE($1) AS date
-                            UNION ALL
-                            SELECT DATE(date, '+1 day')
-                            FROM date_range
-                            WHERE DATE(date, '+1 day') <= DATE($2)
-                        ),
-                        sessions_with_dates AS (
-                            SELECT id, user_id, video_length, date
-                            FROM date_range
-                            LEFT JOIN study_sessions
-                                ON date = DATE(ended)
-                        )
-                        SELECT uid, date, COALESCE(SUM(video_length), 0) AS daily_video_time
-                        FROM sessions_with_dates
-                        LEFT JOIN users
-                            ON user_id = users.id
-                        WHERE uid IS NULL OR uid = $3
-                        GROUP BY user_id, date
-                        ORDER BY date
-                        ", start, end, uid)
-                            .fetch_all(&ctx.data().db_pool)
-                            .await.unwrap();
+                        let mut chart = ChartBuilder::on(&drawing_area)
+                            .caption("Video time", ("sans-serif", 50))
+                            .build_cartesian_2d(0..(ctx.dates().await?.len()), 0..1)?;
 
-                        ("Video time", "hours/day",
-                            AreaSeries::new(
-                                (0..).zip(data.iter().map(|r| r.daily_video_time as f64 / 3600.0)), 0.0, WHITE).into_iter()
-                        )
+                        chart.configure_mesh()
+                            .x_desc("Time")
+                            .y_desc("hours/day")
+                            .draw()?;
+
+                        draw_video_time_stats(ctx, &mut chart).await?;
                     }
                     Statistic::Balance => {
-                        let data = sqlx::query!("
-                        WITH RECURSIVE date_range AS (
-                            SELECT DATE($1) AS date
-                            UNION ALL
-                            SELECT DATE(date, '+1 day')
-                            FROM date_range
-                            WHERE DATE(date, '+1 day') <= DATE($2)
-                        ),
-                        transactions_with_dates AS (
-                            SELECT id, user_id, coins_diff, timestamp, date
-                            FROM date_range
-                            LEFT JOIN coin_transactions
-                                ON date = DATE(timestamp, 'unixepoch')
-                        )
-                        SELECT
-                            uid, date,
-                            COALESCE(SUM(coins_diff) OVER (ORDER BY date), 0) AS balance
-                        FROM transactions_with_dates
-                        LEFT JOIN users
-                            ON user_id = users.id
-                        WHERE uid IS NULL OR uid = $3
-                        GROUP BY user_id, date
-                        ORDER BY date
-                        ", start, end, uid)
-                            .fetch_all(&ctx.data().db_pool)
-                            .await?;
+                        let mut chart = ChartBuilder::on(&drawing_area)
+                            .caption("Balance", ("sans-serif", 50))
+                            .build_cartesian_2d(0..(ctx.dates().await?.len()), 0..1)?;
 
+                        chart.configure_mesh()
+                            .x_desc("Time")
+                            .y_desc("coins")
+                            .draw()?;
 
-
-                        ("Balance", "Coins",
-                            LineSeries::new(
-                                (0..).zip(data.iter()
-                                    .map(|r| r.balance as f64)), WHITE).into_iter()
-                        )
+                        draw_balance_stats(ctx, &mut chart).await?;
                     }
                 };
 
-                let mut chart = ChartBuilder::on(drawing_area)
-                    .caption(title, ("sans-serif", 50))
-                    .build_cartesian_2d(0..(dates.len()), 0..1)?;
-
-                chart.configure_mesh()
-                    .x_desc("Time")
-                    .y_desc(y_axis_label)
-                    .draw()?;
-
-                for s in series {
-                    chart.draw_series(s)?;
-                }
-
                 Ok(())
-            })?;
+            }).await?;
 
             let conn = &mut ctx.data().db_pool.acquire().await?;
-            let theme = user_selected_theme(conn, user.id).await?.into();
+            let theme = user_selected_theme(conn, user.id).await?;
             let attachment = bytes_to_attachment(buffer, None);
 
             ctx.send(CreateReply::default().attachment(attachment)).await?;
@@ -244,6 +158,145 @@ pub async fn stats(
             .await?;
         }
     }
+
+    Ok(())
+}
+
+struct ChartStatsContext {
+    pool: SqlitePool,
+    start: NaiveDate,
+    end: NaiveDate,
+    uid: UserId,
+}
+
+impl ChartStatsContext {
+    async fn dates(&self) -> anyhow::Result<Vec<String>> {
+        Ok(sqlx::query!("
+        WITH RECURSIVE date_range AS (
+            SELECT DATE($1) AS date
+            UNION ALL
+            SELECT DATE(date, '+1 day')
+            FROM date_range
+            WHERE DATE(date, '+1 day') <= DATE($2)
+        ) SELECT * FROM date_range
+        ", self.start, self.end)
+            .fetch_all(&self.pool)
+            .await?
+            .iter()
+            .map(|r| r.date.as_ref().map(|s| s.to_string()))
+            .flatten()
+            .collect::<Vec<_>>())
+    }
+}
+
+async fn draw_study_time_stats(ctx: ChartStatsContext, chart: &mut ChartContext<'_, BitMapBackend<'_>, Cartesian2d<RangedCoordusize, RangedCoordi32>>) -> anyhow::Result<()> {
+    let start = ctx.start.to_string();
+    let end = ctx.end.to_string();
+    let uid = i64::from(ctx.uid);
+
+    let data = sqlx::query!("
+    WITH RECURSIVE date_range AS (
+        SELECT DATE($1) AS date
+        UNION ALL
+        SELECT DATE(date, '+1 day')
+        FROM date_range
+        WHERE DATE(date, '+1 day') <= DATE($2)
+    ),
+    sessions_with_dates AS (
+        SELECT id, user_id, length, date
+        FROM date_range
+        LEFT JOIN study_sessions
+            ON date = DATE(ended)
+    )
+    SELECT uid, date, COALESCE(SUM(length), 0) AS daily_time
+    FROM sessions_with_dates
+    LEFT JOIN users
+        ON user_id = users.id
+    WHERE uid IS NULL OR uid = $3
+    GROUP BY user_id, date
+    ORDER BY date
+    ", start, end, uid)
+        .fetch_all(&ctx.pool)
+        .await?;
+
+    chart.draw_series(AreaSeries::new(
+            (0..).zip(data.iter()
+                .map(|r| r.daily_time as i32 / 3600)), 0, WHITE).into_iter())?;
+
+    Ok(())
+}
+
+async fn draw_video_time_stats(ctx: ChartStatsContext, chart: &mut ChartContext<'_, BitMapBackend<'_>, Cartesian2d<RangedCoordusize, RangedCoordi32>>) -> anyhow::Result<()> {
+    let start = ctx.start.to_string();
+    let end = ctx.end.to_string();
+    let uid = i64::from(ctx.uid);
+
+    let data = sqlx::query!("
+    WITH RECURSIVE date_range AS (
+        SELECT DATE($1) AS date
+        UNION ALL
+        SELECT DATE(date, '+1 day')
+        FROM date_range
+        WHERE DATE(date, '+1 day') <= DATE($2)
+    ),
+    sessions_with_dates AS (
+        SELECT id, user_id, video_length, date
+        FROM date_range
+        LEFT JOIN study_sessions
+            ON date = DATE(ended)
+    )
+    SELECT uid, date, COALESCE(SUM(video_length), 0) AS daily_video_time
+    FROM sessions_with_dates
+    LEFT JOIN users
+        ON user_id = users.id
+    WHERE uid IS NULL OR uid = $3
+    GROUP BY user_id, date
+    ORDER BY date
+    ", start, end, uid)
+        .fetch_all(&ctx.pool)
+        .await?;
+
+    chart.draw_series(AreaSeries::new(
+            (0..).zip(data.iter().map(|r| r.daily_video_time as i32 / 3600)), 0, WHITE).into_iter())?;
+
+    Ok(())
+}
+
+async fn draw_balance_stats(ctx: ChartStatsContext, chart: &mut ChartContext<'_, BitMapBackend<'_>, Cartesian2d<RangedCoordusize, RangedCoordi32>>) -> anyhow::Result<()> {
+    let start = ctx.start.to_string();
+    let end = ctx.end.to_string();
+    let uid = i64::from(ctx.uid);
+
+    let data = sqlx::query!("
+    WITH RECURSIVE date_range AS (
+        SELECT DATE($1) AS date
+        UNION ALL
+        SELECT DATE(date, '+1 day')
+        FROM date_range
+        WHERE DATE(date, '+1 day') <= DATE($2)
+    ),
+    transactions_with_dates AS (
+        SELECT id, user_id, coins_diff, timestamp, date
+        FROM date_range
+        LEFT JOIN coin_transactions
+            ON date = DATE(timestamp, 'unixepoch')
+    )
+    SELECT
+        uid, date,
+        COALESCE(SUM(coins_diff) OVER (ORDER BY date), 0) AS balance
+    FROM transactions_with_dates
+    LEFT JOIN users
+        ON user_id = users.id
+    WHERE uid IS NULL OR uid = $3
+    GROUP BY user_id, date
+    ORDER BY date
+    ", start, end, uid)
+        .fetch_all(&ctx.pool)
+        .await?;
+
+    chart.draw_series(LineSeries::new(
+            (0..).zip(data.iter()
+                .map(|r| r.balance as i32)), WHITE).into_iter())?;
 
     Ok(())
 }
